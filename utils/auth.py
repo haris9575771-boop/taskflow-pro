@@ -22,15 +22,15 @@ def create_default_users():
     # Check if users already exist
     c.execute("SELECT COUNT(*) FROM users")
     if c.fetchone()[0] == 0:
-        # Create Luke Wise (team)
+        # Create Luke Wise (team) - Give both team and client access
         c.execute('''
             INSERT INTO users (email, password_hash, name, type, preferences)
             VALUES (?, ?, ?, ?, ?)
         ''', (
-            'luke@burrichteam.com',
+            'luke@theburtchteam.com',
             hash_password('LukeWise2024!'),
             'Luke Wise',
-            'team',
+            'team',  # Changed to team for full access
             json.dumps({'theme': 'light', 'notifications': True, 'default_view': 'dashboard'})
         ))
         
@@ -39,7 +39,7 @@ def create_default_users():
             INSERT INTO users (email, password_hash, name, type, preferences)
             VALUES (?, ?, ?, ?, ?)
         ''', (
-            'client@burrichteam.com',
+            'client@theburtchteam.com',
             hash_password('BurtchTeam2024!'),
             'The Burtch Team',
             'client',
@@ -48,9 +48,9 @@ def create_default_users():
         
         # Create additional team members for demo
         team_members = [
-            ('sarah@burrichteam.com', 'SarahChen2024!', 'Sarah Chen', 'team'),
-            ('mike@burrichteam.com', 'MikeRodriguez2024!', 'Mike Rodriguez', 'team'),
-            ('emma@burrichteam.com', 'EmmaWilson2024!', 'Emma Wilson', 'team')
+            ('sarah@theburtchteam.com', 'SarahChen2024!', 'Sarah Chen', 'team'),
+            ('mike@theburtchteam.com', 'MikeRodriguez2024!', 'Mike Rodriguez', 'team'),
+            ('emma@theburtchteam.com', 'EmmaWilson2024!', 'Emma Wilson', 'team')
         ]
         
         for email, password, name, user_type in team_members:
