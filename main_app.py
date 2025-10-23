@@ -199,13 +199,13 @@ def show_login_screen():
         
         with col_a:
             if st.button("🚀 Continue as Luke Wise", use_container_width=True, key="luke_quick"):
-                st.session_state.login_user = "luke@burrichteam.com"
+                st.session_state.login_user = "luke@theburtchteam.com"
                 st.session_state.login_pass = "LukeWise2024!"
                 st.rerun()
         
         with col_b:
             if st.button("🏢 Continue as Burtch Team", use_container_width=True, key="burtch_quick"):
-                st.session_state.login_user = "client@burrichteam.com" 
+                st.session_state.login_user = "client@theburtchteam.com"
                 st.session_state.login_pass = "BurtchTeam2024!"
                 st.rerun()
         
@@ -233,10 +233,10 @@ def show_login_screen():
         
         # Demo credentials
         with st.expander("Demo Credentials"):
-            st.write("**Luke Wise (Team)**")
-            st.code("Email: luke@burrichteam.com\nPassword: LukeWise2024!")
-            st.write("**Burtch Team (Client)**")
-            st.code("Email: client@burrichteam.com\nPassword: BurtchTeam2024!")
+            st.write("**Luke Wise (Team - Full Access)**")
+            st.code("Email: luke@theburtchteam.com\nPassword: LukeWise2024!")
+            st.write("**Burtch Team (Client - Limited Access)**")
+            st.code("Email: client@theburtchteam.com\nPassword: BurtchTeam2024!")
 
 def show_main_application():
     """Display the main application after login"""
@@ -257,19 +257,19 @@ def show_main_application():
     # Navigation based on user type
     if st.session_state.user_type == "team":
         pages = {
-            "📊 Dashboard": "1_📊_Dashboard",
-            "📝 Task Management": "2_📝_Task_Management", 
-            "📅 Calendar & Timeline": "3_📅_Calendar_View",
-            "👥 Team Collaboration": "4_👥_Team_Collaboration",
-            "⏰ Time Tracking": "6_⏰_Time_Tracking",
-            "📈 Analytics & Reports": "5_📈_Analytics_Reports",
-            "⚙️ Settings": "7_⚙️_Settings"
+            "📊 Dashboard": "1_Dashboard",
+            "📝 Task Management": "2_Task_Management", 
+            "📅 Calendar & Timeline": "3_Calendar_View",
+            "👥 Team Collaboration": "4_Team_Collaboration",
+            "⏰ Time Tracking": "6_Time_Tracking",
+            "📈 Analytics & Reports": "5_Analytics_Reports",
+            "⚙️ Settings": "7_Settings"
         }
     else:  # client
         pages = {
-            "📊 Dashboard": "1_📊_Dashboard",
-            "📅 Calendar View": "3_📅_Calendar_View", 
-            "📈 Project Reports": "5_📈_Analytics_Reports"
+            "📊 Dashboard": "1_Dashboard",
+            "📅 Calendar View": "3_Calendar_View", 
+            "📈 Project Reports": "5_Analytics_Reports"
         }
     
     # Navigation
@@ -283,28 +283,28 @@ def show_main_application():
     
     # Display selected page
     try:
-        page_name = pages[selection]
-        if page_name == "1_📊_Dashboard":
-            from pages import dashboard
-            dashboard.app()
-        elif page_name == "2_📝_Task_Management":
-            from pages import task_management
-            task_management.app()
-        elif page_name == "3_📅_Calendar_View":
-            from pages import calendar_view
-            calendar_view.app()
-        elif page_name == "4_👥_Team_Collaboration":
-            from pages import team_collaboration
-            team_collaboration.app()
-        elif page_name == "5_📈_Analytics_Reports":
-            from pages import analytics_reports
-            analytics_reports.app()
-        elif page_name == "6_⏰_Time_Tracking":
-            from pages import time_tracking
-            time_tracking.app()
-        elif page_name == "7_⚙️_Settings":
-            from pages import settings
-            settings.app()
+        # Import and run the selected page
+        if selection == "📊 Dashboard":
+            from pages.dashboard import app
+            app()
+        elif selection == "📝 Task Management":
+            from pages.task_management import app
+            app()
+        elif selection == "📅 Calendar & Timeline":
+            from pages.calendar_view import app
+            app()
+        elif selection == "👥 Team Collaboration":
+            from pages.team_collaboration import app
+            app()
+        elif selection == "⏰ Time Tracking":
+            from pages.time_tracking import app
+            app()
+        elif selection == "📈 Analytics & Reports":
+            from pages.analytics_reports import app
+            app()
+        elif selection == "⚙️ Settings":
+            from pages.settings import app
+            app()
     except Exception as e:
         st.error(f"Error loading page {selection}: {e}")
         st.info("Please try refreshing the page or contact support.")
