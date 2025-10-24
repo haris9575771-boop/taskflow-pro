@@ -1,15 +1,26 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
-from utils.database import get_tasks, add_task, update_task, delete_task, get_team_members
+from utils.database import get_tasks, add_task, update_task, delete_task, get_team_members, add_comment, get_task_comments
 from utils.helpers import get_color_by_priority, get_status_emoji
 
 def app():
-    st.title("📝 Task Management")
+    st.title("Task Management")
     st.markdown("---")
     
+    # Role-specific functionality
+    if st.session_state.user_type == "client":
+        # Burtch Team - Can create and manage all tasks
+        show_client_task_management()
+    else:
+        # Luke Wise - Can only view and update assigned tasks
+        show_team_task_management()
+
+def show_client_task_management():
+    """Task management for The Burtch Team (Client)"""
+    
     # Task creation form
-    with st.expander("➕ Add New Task", expanded=False):
+    with st.expander("Create New Task", expanded=False):
         with st.form("task_form"):
             col1, col2 = st.columns(2)
             
@@ -27,7 +38,7 @@ def app():
             with col2:
                 priority = st.selectbox("Priority", ["High", "Medium", "Low"])
                 due_date = st.date_input("Due Date", min_value=datetime.now().date())
-                status = st.selectbox("Status", ["Pending", "In Progress", "On Hold"])
+                start_date = st.date_input("Start Date", min_value=datetime.now().date())
                 estimated_hours = st.number_input("Estimated Hours", min_value=0.0, step=0.5)
             
             if st.form_submit_button("Create Task"):
@@ -38,8 +49,9 @@ def app():
                         'assigned_to': assigned_options[assigned_to],
                         'assigned_by': st.session_state.user_id,
                         'priority': priority,
-                        'status': status,
+                        'status': "Pending",
                         'due_date': due_date.strftime('%Y-%m-%d'),
+                        'start_date': start_date.strftime('%Y-%m-%d'),
                         'category': category,
                         'estimated_hours': estimated_hours
                     }
@@ -53,8 +65,10 @@ def app():
                 else:
                     st.error("Please fill in the task title!")
     
+    # Task management section
+    st.subheader("Manage Tasks")
+    
     # Task filters
-    st.subheader("Task List")
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -86,13 +100,40 @@ def app():
     if not show_completed:
         if 'status' in filters:
             if filters['status'] == 'Completed':
-                filters['status'] = 'Pending'  # Fallback if Completed was selected but now hidden
+                filters['status'] = 'Pending'
         else:
             filters['status'] = ['Pending', 'In Progress', 'On Hold']
     
     # Get filtered tasks
     tasks = get_tasks(filters)
+    display_task_list(tasks, True)
+
+def show_team_task_management():
+    """Task management for Luke Wise (Team)"""
+    st.subheader("My Tasks")
     
+    # Task filters for team member
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        filter_status = st.selectbox("Filter by Status", ["All", "Pending", "In Progress", "Completed", "On Hold"])
+    
+    with col2:
+        filter_priority = st.selectbox("Filter by Priority", ["All", "High", "Medium", "Low"])
+    
+    # Build filters
+    filters = {'assigned_to': st.session_state.user_id}
+    if filter_status != "All":
+        filters['status'] = filter_status
+    if filter_priority != "All":
+        filters['priority'] = filter_priority
+    
+    # Get filtered tasks
+    tasks = get_tasks(filters)
+    display_task_list(tasks, False)
+
+def display_task_list(tasks, is_client=False):
+    """Display task list with appropriate controls based on user role"""
     if not tasks:
         st.info("No tasks found matching your filters.")
         return
@@ -105,58 +146,85 @@ def app():
             col1, col2, col3 = st.columns([3, 1, 1])
             
             with col1:
-                emoji = get_status_emoji(task['status'])
+                status_text = get_status_emoji(task['status'])
                 priority_color = get_color_by_priority(task['priority'])
                 
-                with st.expander(f"{emoji} {task['title']} - {task['priority']} Priority", expanded=False):
+                with st.expander(f"{status_text} {task['title']} - {task['priority']} Priority", expanded=False):
                     st.write(f"**Description:** {task['description']}")
                     st.write(f"**Assigned To:** {task['assigned_to_name']}")
                     st.write(f"**Due Date:** {task['due_date']}")
                     st.write(f"**Category:** {task['category']}")
                     st.write(f"**Estimated Hours:** {task.get('estimated_hours', 'Not set')}")
                     
-                    # Task actions
-                    col_a, col_b, col_c, col_d = st.columns(4)
+                    # Comments section
+                    st.write("---")
+                    st.write("**Comments:**")
+                    comments = get_task_comments(task['id'])
+                    if comments:
+                        for comment in comments:
+                            st.write(f"**{comment['user_name']}** ({format_date(comment['created_date'])}):")
+                            st.write(f"{comment['content']}")
+                            st.write("---")
+                    else:
+                        st.write("No comments yet.")
+                    
+                    # Add comment
+                    with st.form(key=f"comment_form_{task['id']}"):
+                        new_comment = st.text_area("Add your comment", key=f"new_comment_{task['id']}")
+                        if st.form_submit_button("Post Comment"):
+                            if new_comment:
+                                add_comment({
+                                    'task_id': task['id'],
+                                    'user_id': st.session_state.user_id,
+                                    'content': new_comment
+                                })
+                                st.success("Comment added!")
+                                st.rerun()
+                    
+                    # Task actions based on user role
+                    col_a, col_b, col_c = st.columns(3)
                     
                     with col_a:
-                        new_status = st.selectbox(
-                            "Update Status",
-                            ["Pending", "In Progress", "Completed", "On Hold"],
-                            index=["Pending", "In Progress", "Completed", "On Hold"].index(task['status']),
-                            key=f"status_{task['id']}"
-                        )
-                        if new_status != task['status']:
-                            if st.button("Update", key=f"update_{task['id']}"):
-                                update_data = {'status': new_status}
-                                if new_status == 'Completed':
-                                    update_data['completed_date'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                                update_task(task['id'], update_data)
-                                st.success("Status updated!")
-                                st.rerun()
+                        if not is_client or st.session_state.user_type == "team":
+                            # Team members and clients can update status
+                            new_status = st.selectbox(
+                                "Update Status",
+                                ["Pending", "In Progress", "Completed", "On Hold"],
+                                index=["Pending", "In Progress", "Completed", "On Hold"].index(task['status']),
+                                key=f"status_{task['id']}"
+                            )
+                            if new_status != task['status']:
+                                if st.button("Update Status", key=f"update_{task['id']}"):
+                                    update_data = {'status': new_status}
+                                    if new_status == 'Completed':
+                                        update_data['completed_date'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                                    update_task(task['id'], update_data)
+                                    st.success("Status updated!")
+                                    st.rerun()
                     
                     with col_b:
-                        actual_hours = st.number_input(
-                            "Actual Hours",
-                            min_value=0.0,
-                            step=0.5,
-                            value=float(task.get('actual_hours', 0)),
-                            key=f"hours_{task['id']}"
-                        )
-                        if actual_hours != task.get('actual_hours', 0):
-                            if st.button("Save Hours", key=f"save_hours_{task['id']}"):
-                                update_task(task['id'], {'actual_hours': actual_hours})
-                                st.success("Hours updated!")
-                                st.rerun()
+                        if st.session_state.user_type == "team":
+                            # Only team members can log actual hours
+                            actual_hours = st.number_input(
+                                "Actual Hours",
+                                min_value=0.0,
+                                step=0.5,
+                                value=float(task.get('actual_hours', 0)),
+                                key=f"hours_{task['id']}"
+                            )
+                            if actual_hours != task.get('actual_hours', 0):
+                                if st.button("Save Hours", key=f"save_hours_{task['id']}"):
+                                    update_task(task['id'], {'actual_hours': actual_hours})
+                                    st.success("Hours updated!")
+                                    st.rerun()
                     
                     with col_c:
-                        if st.button("📝 Edit", key=f"edit_{task['id']}"):
-                            st.session_state.editing_task = task['id']
-                    
-                    with col_d:
-                        if st.button("🗑️ Delete", key=f"delete_{task['id']}"):
-                            delete_task(task['id'])
-                            st.success("Task deleted!")
-                            st.rerun()
+                        if is_client:
+                            # Only clients can delete tasks
+                            if st.button("Delete Task", key=f"delete_{task['id']}"):
+                                delete_task(task['id'])
+                                st.success("Task deleted!")
+                                st.rerun()
             
             with col2:
                 st.write(f"**Due:** {task['due_date']}")
@@ -178,3 +246,13 @@ def app():
                 )
         
         st.markdown("---")
+
+def format_date(date_string):
+    """Helper function to format date"""
+    from datetime import datetime
+    try:
+        if isinstance(date_string, str):
+            return datetime.strptime(date_string, '%Y-%m-%d %H:%M:%S').strftime('%b %d, %Y %I:%M %p')
+        return str(date_string)
+    except:
+        return str(date_string)
