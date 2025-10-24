@@ -1,182 +1,375 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime, timedelta
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
-from utils.database import get_tasks
-from utils.helpers import get_color_by_priority, get_status_emoji
+from utils.database import init_db, get_tasks
+from utils.helpers import get_color_by_priority, get_status_emoji, format_date
+from utils.auth import create_default_users
+from utils.notifications import get_unread_notifications, mark_notification_as_read
+import base64
+import os
+import sys
 
-def app():
-    st.title("Dashboard")
-    st.markdown("---")
+# Add the current directory to Python path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# Page configuration
+st.set_page_config(
+    page_title="TaskFlow Pro - Burtch Team",
+    page_icon="✅",
+    layout="wide",
+    initial_sidebar_state="collapsed"  # Start with collapsed sidebar
+)
+
+# Load custom CSS
+def load_css():
+    st.markdown("""
+    <style>
+    .login-container {
+        background: white;
+        padding: 3rem;
+        border-radius: 15px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        margin-top: 2rem;
+        text-align: center;
+    }
+    .login-title {
+        color: #1f77b4;
+        font-size: 2.5rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+    }
+    .login-subtitle {
+        color: #666;
+        font-size: 1.1rem;
+        margin-bottom: 2rem;
+    }
+    .user-header {
+        display: flex;
+        align-items: center;
+        padding: 1rem;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 10px;
+        color: white;
+        margin-bottom: 1rem;
+    }
+    .user-avatar {
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        font-weight: bold;
+        margin-right: 1rem;
+    }
+    .user-name {
+        font-weight: bold;
+        font-size: 1.1rem;
+    }
+    .user-role {
+        font-size: 0.9rem;
+        opacity: 0.9;
+    }
+    .task-card {
+        background: white;
+        border-radius: 10px;
+        padding: 1.5rem;
+        margin: 0.5rem 0;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        border-left: 4px solid #1f77b4;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .task-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+    }
+    .task-card-high {
+        border-left-color: #ff6b6b;
+    }
+    .task-card-medium {
+        border-left-color: #ffd93d;
+    }
+    .task-card-low {
+        border-left-color: #6bcf7f;
+    }
+    .priority-badge {
+        padding: 0.25rem 0.75rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+    .priority-high {
+        background-color: #ff6b6b;
+        color: white;
+    }
+    .priority-medium {
+        background-color: #ffd93d;
+        color: #333;
+    }
+    .priority-low {
+        background-color: #6bcf7f;
+        color: white;
+    }
+    .status-indicator {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.3rem 0.8rem;
+        border-radius: 15px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+    .status-pending {
+        background-color: #fff3cd;
+        color: #856404;
+    }
+    .status-in-progress {
+        background-color: #cce7ff;
+        color: #004085;
+    }
+    .status-completed {
+        background-color: #d4edda;
+        color: #155724;
+    }
+    .status-on-hold {
+        background-color: #e2e3e5;
+        color: #383d41;
+    }
+    .metric-card {
+        background: white;
+        border-radius: 10px;
+        padding: 1.5rem;
+        text-align: center;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        border-top: 4px solid #1f77b4;
+    }
+    .main-header {
+        text-align: center;
+        padding: 2rem;
+        background: linear-gradient(135deg, #1f77b4 0%, #2e8bc0 100%);
+        color: white;
+        margin-bottom: 2rem;
+        border-radius: 10px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+def main():
+    # Initialize database
+    try:
+        init_db()
+        create_default_users()
+    except Exception as e:
+        st.error(f"Database initialization error: {e}")
     
-    # Get tasks based on user role
-    if st.session_state.user_type == "team":
-        # Luke Wise sees only assigned tasks
-        tasks = get_tasks({'assigned_to': st.session_state.user_id})
-    else:
-        # Burtch Team sees all tasks
-        tasks = get_tasks()
-        
-    if not tasks:
-        st.info("No tasks found. Start by adding some tasks!")
+    load_css()
+    
+    # User authentication state
+    if 'user_selected' not in st.session_state:
+        st.session_state.user_selected = False
+        st.session_state.user = None
+        st.session_state.user_type = None
+        st.session_state.user_id = None
+        st.session_state.user_email = None
+    
+    if not st.session_state.user_selected:
+        show_user_selection()
         return
     
-    df = pd.DataFrame(tasks)
+    # Main app after user selection
+    show_main_application()
+
+def show_user_selection():
+    """Display user selection screen"""
+    st.markdown("""
+    <div class="main-header">
+        <h1>TaskFlow Pro</h1>
+        <p>Burtch Team Task Management System</p>
+    </div>
+    """, unsafe_allow_html=True)
     
-    # KPI Metrics
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        total_tasks = len(df)
-        st.metric("Total Tasks", total_tasks)
+    col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
-        completed_tasks = len(df[df['status'] == 'Completed'])
-        st.metric("Completed", completed_tasks)
+        st.markdown("<div class='login-container'>", unsafe_allow_html=True)
+        st.markdown("<h2 class='login-title'>Select Your Role</h2>", unsafe_allow_html=True)
+        st.markdown("<p class='login-subtitle'>Choose how you want to access the system</p>", unsafe_allow_html=True)
+        
+        # User selection buttons
+        col_a, col_b = st.columns(2)
+        
+        with col_a:
+            if st.button("Continue as Luke Wise", use_container_width=True, key="luke"):
+                set_user_session("Luke Wise", "team", 1)
+        
+        with col_b:
+            if st.button("Continue as The Burtch Team", use_container_width=True, key="burtch"):
+                set_user_session("The Burtch Team", "client", 2)
+        
+        st.markdown("---")
+        st.info("""
+        **Role Information:**
+        - **Luke Wise (Team)**: Task execution, time tracking, comments, task updates
+        - **The Burtch Team (Client)**: Task creation, assignment, prioritization, scheduling, reports
+        """)
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+
+def set_user_session(user_name, user_type, user_id):
+    """Set user session and redirect to main app"""
+    st.session_state.user_selected = True
+    st.session_state.user = user_name
+    st.session_state.user_type = user_type
+    st.session_state.user_id = user_id
+    st.session_state.user_email = f"{user_name.lower().replace(' ', '.')}@burrichteam.com"
+    st.rerun()
+
+def show_main_application():
+    """Display the main application after user selection"""
     
-    with col3:
-        pending_tasks = len(df[df['status'] == 'Pending'])
-        st.metric("Pending", pending_tasks)
+    # Configure sidebar to be expanded now
+    st.markdown(
+        """
+        <style>
+            section[data-testid="stSidebar"] {
+                width: 300px !important;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     
-    with col4:
-        overdue_tasks = len(df[(df['due_date'] < datetime.now().strftime('%Y-%m-%d')) & (df['status'] != 'Completed')])
-        st.metric("Overdue", overdue_tasks)
+    # Sidebar header with user info
+    st.sidebar.markdown(f"""
+    <div class="user-header">
+        <div class="user-avatar">{st.session_state.user[0] if st.session_state.user else 'U'}</div>
+        <div class="user-info">
+            <div class="user-name">{st.session_state.user}</div>
+            <div class="user-role">{st.session_state.user_type.title() if st.session_state.user_type else 'User'}</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     
-    st.markdown("---")
+    st.sidebar.markdown("---")
     
-    # Role-specific dashboard content
+    # Navigation based on user type
     if st.session_state.user_type == "team":
-        show_team_dashboard(df)
-    else:
-        show_client_dashboard(df)
+        # Luke Wise - Task executor view
+        pages = {
+            "Dashboard": "1_Dashboard",
+            "My Tasks": "2_Task_Management", 
+            "Calendar": "3_Calendar_View",
+            "Time Tracking": "6_Time_Tracking",
+            "Team Collaboration": "4_Team_Collaboration"
+        }
+    else:  # client - The Burtch Team
+        pages = {
+            "Dashboard": "1_Dashboard",
+            "Task Management": "2_Task_Management",
+            "Calendar": "3_Calendar_View",
+            "Reports": "5_Analytics_Reports",
+            "Team Overview": "4_Team_Collaboration"
+        }
+    
+    # Navigation
+    selection = st.sidebar.radio("Navigate to:", list(pages.keys()))
+    
+    # Quick stats in sidebar
+    display_sidebar_stats()
+    
+    # Notifications
+    display_notifications()
+    
+    # Display selected page
+    try:
+        page_name = pages[selection]
+        if page_name == "1_Dashboard":
+            from pages.Dashboard import app as dashboard_app
+            dashboard_app()
+        elif page_name == "2_Task_Management":
+            from pages.Task_Management import app as task_management_app
+            task_management_app()
+        elif page_name == "3_Calendar_View":
+            from pages.Calendar_View import app as calendar_app
+            calendar_app()
+        elif page_name == "4_Team_Collaboration":
+            from pages.Team_Collaboration import app as team_collaboration_app
+            team_collaboration_app()
+        elif page_name == "5_Analytics_Reports":
+            from pages.Analytics_Reports import app as analytics_app
+            analytics_app()
+        elif page_name == "6_Time_Tracking":
+            from pages.Time_Tracking import app as time_tracking_app
+            time_tracking_app()
+        elif page_name == "7_Settings":
+            from pages.Settings import app as settings_app
+            settings_app()
+    except Exception as e:
+        st.error(f"Error loading page {selection}: {str(e)}")
+        st.info("Please try refreshing the page or contact support.")
 
-def show_team_dashboard(df):
-    """Dashboard for Luke Wise (Team member)"""
-    st.subheader("My Task Overview")
+def display_sidebar_stats():
+    """Display quick stats in sidebar"""
+    st.sidebar.markdown("---")
+    today = datetime.now().date()
+    st.sidebar.markdown(f"**Today:** {today.strftime('%A, %B %d, %Y')}")
     
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        # Tasks by Status
-        st.write("Tasks by Status")
-        status_counts = df['status'].value_counts()
-        fig_status = px.pie(
-            values=status_counts.values,
-            names=status_counts.index,
-            color=status_counts.index,
-            color_discrete_map={
-                'Completed': '#00cc96',
-                'In Progress': '#636efa',
-                'Pending': '#ef553b',
-                'On Hold': '#ab63fa'
-            }
-        )
-        st.plotly_chart(fig_status, use_container_width=True)
-        
-        # Recent Tasks
-        st.write("Recent Tasks")
-        recent_tasks = df.sort_values('created_date', ascending=False).head(10)
-        for _, task in recent_tasks.iterrows():
-            priority_class = f"task-card-{task['priority'].lower()}" if task['priority'] else "task-card"
-            with st.container():
-                col_a, col_b = st.columns([3, 1])
-                with col_a:
-                    status_text = get_status_emoji(task['status'])
-                    priority_color = get_color_by_priority(task['priority'])
-                    st.markdown(
-                        f"<div class='task-card {priority_class}'>"
-                        f"<strong>{status_text} {task['title']}</strong><br>"
-                        f"Priority: <span style='color: {priority_color};'>{task['priority']}</span> | "
-                        f"Due: {task['due_date']} | "
-                        f"Status: {task['status']}"
-                        f"</div>",
-                        unsafe_allow_html=True
-                    )
-    
-    with col2:
-        # Tasks by Priority
-        st.write("Tasks by Priority")
-        priority_counts = df['priority'].value_counts()
-        fig_priority = px.bar(
-            x=priority_counts.values,
-            y=priority_counts.index,
-            orientation='h',
-            color=priority_counts.index,
-            color_discrete_map={
-                'High': '#ff6b6b',
-                'Medium': '#ffd93d',
-                'Low': '#6bcf7f'
-            }
-        )
-        fig_priority.update_layout(showlegend=False)
-        st.plotly_chart(fig_priority, use_container_width=True)
-        
-        # Upcoming Deadlines
-        st.write("Upcoming Deadlines")
-        upcoming = df[
-            (df['due_date'] >= datetime.now().strftime('%Y-%m-%d')) & 
-            (df['status'] != 'Completed')
-        ].sort_values('due_date').head(5)
-        
-        for _, task in upcoming.iterrows():
-            days_left = (datetime.strptime(task['due_date'], '%Y-%m-%d') - datetime.now()).days
-            st.write(f"**{task['title']}** - {days_left} days left")
-
-def show_client_dashboard(df):
-    """Dashboard for The Burtch Team (Client)"""
-    st.subheader("Project Overview")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Tasks by Status
-        st.write("Tasks by Status")
-        status_counts = df['status'].value_counts()
-        fig_status = px.pie(
-            values=status_counts.values,
-            names=status_counts.index,
-            title="Task Distribution"
-        )
-        st.plotly_chart(fig_status, use_container_width=True)
-        
-        # Team Performance
-        st.write("Team Performance")
-        if 'assigned_to_name' in df.columns:
-            performance = df.groupby('assigned_to_name').agg({
-                'id': 'count',
-                'status': lambda x: (x == 'Completed').sum()
-            }).reset_index()
-            performance['completion_rate'] = (performance['status'] / performance['id'] * 100).round(1)
+    # Quick stats
+    try:
+        if st.session_state.user_type == "team":
+            # For Luke Wise, show only assigned tasks
+            tasks = get_tasks({'assigned_to': st.session_state.user_id})
+        else:
+            # For Burtch Team, show all tasks
+            tasks = get_tasks()
             
-            fig_performance = px.bar(
-                performance,
-                x='assigned_to_name',
-                y='completion_rate',
-                title='Completion Rate by Team Member'
-            )
-            st.plotly_chart(fig_performance, use_container_width=True)
-    
-    with col2:
-        # Tasks by Priority
-        st.write("Tasks by Priority")
-        priority_counts = df['priority'].value_counts()
-        fig_priority = px.bar(
-            x=priority_counts.values,
-            y=priority_counts.index,
-            orientation='h',
-            title="Tasks by Priority"
-        )
-        st.plotly_chart(fig_priority, use_container_width=True)
-        
-        # Recent Activity
-        st.write("Recent Activity")
-        recent_tasks = df.sort_values('created_date', ascending=False).head(10)
-        for _, task in recent_tasks.iterrows():
-            col_a, col_b = st.columns([3, 1])
-            with col_a:
-                st.write(f"**{task['title']}**")
-                st.write(f"Assigned to: {task.get('assigned_to_name', 'Unassigned')}")
-            with col_b:
-                st.write(f"Status: {task['status']}")
-            st.markdown("---")
+        if tasks:
+            df = pd.DataFrame(tasks)
+            
+            col1, col2 = st.sidebar.columns(2)
+            with col1:
+                pending = len(df[df['status'] == 'Pending'])
+                st.metric("Pending", pending)
+            with col2:
+                in_progress = len(df[df['status'] == 'In Progress'])
+                st.metric("In Progress", in_progress)
+            
+            col3, col4 = st.sidebar.columns(2)
+            with col3:
+                overdue = len(df[(df['due_date'] < datetime.now().strftime('%Y-%m-%d')) & (df['status'] != 'Completed')])
+                st.metric("Overdue", overdue)
+            with col4:
+                completed_today = len(df[(df['status'] == 'Completed') & (pd.to_datetime(df['completed_date']).dt.date == today)])
+                st.metric("Completed Today", completed_today)
+    except Exception as e:
+        st.sidebar.error("Error loading stats")
+
+def display_notifications():
+    """Display notifications in sidebar"""
+    try:
+        notifications = get_unread_notifications(st.session_state.user_id)
+        if notifications:
+            st.sidebar.markdown("---")
+            with st.sidebar.expander(f"Notifications ({len(notifications)})", expanded=False):
+                for notification in notifications[:5]:
+                    st.write(f"**{notification['title']}**")
+                    st.caption(f"{format_date(notification['created_date'])}")
+                    if st.button("Mark as read", key=f"read_{notification['id']}"):
+                        mark_notification_as_read(notification['id'])
+                        st.rerun()
+    except Exception as e:
+        st.sidebar.error("Error loading notifications")
+
+    # Logout button
+    st.sidebar.markdown("---")
+    if st.sidebar.button("Logout", use_container_width=True):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+
+if __name__ == "__main__":
+    main()
