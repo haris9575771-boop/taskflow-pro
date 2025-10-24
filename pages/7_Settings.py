@@ -2,7 +2,7 @@ import streamlit as st
 from utils.database import init_db
 
 def app():
-    st.title("⚙️ Settings")
+    st.title("Settings")
     st.markdown("---")
     
     st.subheader("User Preferences")
@@ -28,9 +28,9 @@ def app():
     
     st.markdown("---")
     
-    # Database management (for admin)
+    # Database management (for admin/Luke Wise)
     if st.session_state.user_type == "team":
-        st.subheader("Database Management")
+        st.subheader("System Administration")
         
         col1, col2 = st.columns(2)
         
