@@ -5,7 +5,7 @@ from utils.database import get_tasks
 from utils.helpers import get_color_by_priority
 
 def app():
-    st.title("📅 Calendar View")
+    st.title("Calendar View")
     st.markdown("---")
     
     # Date selection
@@ -22,8 +22,12 @@ def app():
         else:  # Month
             selected_month = st.date_input("Select Month", datetime.now().date())
     
-    # Get tasks
-    tasks = get_tasks()
+    # Get tasks based on user role
+    if st.session_state.user_type == "team":
+        tasks = get_tasks({'assigned_to': st.session_state.user_id})
+    else:
+        tasks = get_tasks()
+        
     if not tasks:
         st.info("No tasks found.")
         return
@@ -46,6 +50,7 @@ def app():
                     with col_a:
                         st.write(f"**{task['title']}**")
                         st.write(f"Priority: {task['priority']} | Status: {task['status']}")
+                        st.write(f"Assigned to: {task.get('assigned_to_name', 'Unassigned')}")
                     with col_b:
                         st.markdown(
                             f"<div style='background-color: {priority_color}; padding: 10px; border-radius: 5px; text-align: center; color: white;'>"
