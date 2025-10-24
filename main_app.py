@@ -288,26 +288,26 @@ def show_main_application():
     try:
         page_name = pages[selection]
         if page_name == "1_Dashboard":
-            import pages.Dashboard as dashboard_module
-            dashboard_module.app()
+            from pages.Dashboard import app as dashboard_app
+            dashboard_app()
         elif page_name == "2_Task_Management":
-            import pages.Task_Management as task_management_module
-            task_management_module.app()
+            from pages.Task_Management import app as task_management_app
+            task_management_app()
         elif page_name == "3_Calendar_View":
-            import pages.Calendar_View as calendar_module
-            calendar_module.app()
+            from pages.Calendar_View import app as calendar_app
+            calendar_app()
         elif page_name == "4_Team_Collaboration":
-            import pages.Team_Collaboration as team_collaboration_module
-            team_collaboration_module.app()
+            from pages.Team_Collaboration import app as team_collaboration_app
+            team_collaboration_app()
         elif page_name == "5_Analytics_Reports":
-            import pages.Analytics_Reports as analytics_module
-            analytics_module.app()
+            from pages.Analytics_Reports import app as analytics_app
+            analytics_app()
         elif page_name == "6_Time_Tracking":
-            import pages.Time_Tracking as time_tracking_module
-            time_tracking_module.app()
+            from pages.Time_Tracking import app as time_tracking_app
+            time_tracking_app()
         elif page_name == "7_Settings":
-            import pages.Settings as settings_module
-            settings_module.app()
+            from pages.Settings import app as settings_app
+            settings_app()
     except Exception as e:
         st.error(f"Error loading page {selection}: {str(e)}")
         st.info("Please try refreshing the page or contact support.")
