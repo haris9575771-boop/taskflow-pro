@@ -5,11 +5,11 @@ from utils.database import get_team_members, get_tasks, add_comment, get_task_co
 from utils.helpers import format_date
 
 def app():
-    st.title("👥 Team Collaboration")
+    st.title("Team Collaboration")
     st.markdown("---")
     
     # Team overview
-    st.subheader("🏢 Team Overview")
+    st.subheader("Team Overview")
     
     team_members = get_team_members()
     tasks = get_tasks()
@@ -39,7 +39,7 @@ def app():
     st.markdown("---")
     
     # Team members grid
-    st.subheader("👤 Team Members")
+    st.subheader("Team Members")
     
     cols = st.columns(3)
     for idx, member in enumerate(team_members):
@@ -63,7 +63,7 @@ def app():
     st.markdown("---")
     
     # Team comments and discussions
-    st.subheader("💬 Recent Discussions")
+    st.subheader("Recent Discussions")
     
     # Show tasks with recent comments
     tasks_with_comments = []
@@ -81,8 +81,8 @@ def app():
             task = item['task']
             latest_comment = item['latest_comment']
             
-            with st.expander(f"💬 {task['title']} ({item['comment_count']} comments)"):
-                st.write(f"**{latest_comment['user_name']}** - {format_date(latest_comment['created_date'], 'time')}")
+            with st.expander(f"{task['title']} ({item['comment_count']} comments)"):
+                st.write(f"**{latest_comment['user_name']}** - {format_date(latest_comment['created_date'])}")
                 st.write(latest_comment['content'])
                 
                 # Add new comment
@@ -102,7 +102,7 @@ def app():
     
     # Team workload overview
     st.markdown("---")
-    st.subheader("📊 Workload Distribution")
+    st.subheader("Workload Distribution")
     
     if not df_tasks.empty:
         workload_data = []
