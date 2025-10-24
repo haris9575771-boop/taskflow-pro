@@ -13,13 +13,13 @@ def get_color_by_priority(priority):
 def get_status_emoji(status):
     """Return emoji based on status"""
     emojis = {
-        'Pending': '⏳',
-        'In Progress': '🔄',
-        'Completed': '✅',
-        'On Hold': '⏸️',
-        'Cancelled': '❌'
+        'Pending': 'Pending',
+        'In Progress': 'In Progress',
+        'Completed': 'Completed',
+        'On Hold': 'On Hold',
+        'Cancelled': 'Cancelled'
     }
-    return emojis.get(status, '📝')
+    return emojis.get(status, 'Task')
 
 def format_date(date_string, format_type='short'):
     """Format date string to readable format"""
@@ -64,15 +64,15 @@ def calculate_time_remaining(due_date):
         delta = (due - today).days
         
         if delta < 0:
-            return f"⏰ Overdue by {abs(delta)} days"
+            return f"Overdue by {abs(delta)} days"
         elif delta == 0:
-            return "📅 Due today"
+            return "Due today"
         elif delta == 1:
-            return "📅 Due tomorrow"
+            return "Due tomorrow"
         elif delta <= 7:
-            return f"📅 Due in {delta} days"
+            return f"Due in {delta} days"
         else:
-            return f"📅 Due in {delta} days"
+            return f"Due in {delta} days"
     except:
         return "Invalid date"
 
@@ -119,13 +119,3 @@ def get_week_range(date=None):
     start = date - timedelta(days=date.weekday())
     end = start + timedelta(days=6)
     return start, end
-
-def parse_recurrence_rule(rule):
-    """Parse recurrence rule string"""
-    if not rule:
-        return None
-    
-    try:
-        return json.loads(rule)
-    except:
-        return {'frequency': 'daily', 'interval': 1}
