@@ -5,11 +5,16 @@ from utils.database import get_tasks, get_time_entries, add_time_entry
 from utils.helpers import format_duration, format_date
 
 def app():
-    st.title("⏰ Time Tracking")
+    st.title("Time Tracking")
     st.markdown("---")
     
+    # Only team members can track time
+    if st.session_state.user_type != "team":
+        st.info("Time tracking is only available for team members.")
+        return
+    
     # Current week time summary
-    st.subheader("📅 This Week's Summary")
+    st.subheader("This Week's Summary")
     
     today = datetime.now().date()
     start_of_week = today - timedelta(days=today.weekday())
@@ -43,7 +48,7 @@ def app():
     st.markdown("---")
     
     # Quick time entry
-    st.subheader("⏱️ Quick Time Entry")
+    st.subheader("Quick Time Entry")
     
     col1, col2, col3 = st.columns(3)
     
@@ -59,7 +64,7 @@ def app():
         billable = st.checkbox("Billable", value=True)
         description = st.text_input("Description (optional)")
     
-    if st.button("⏱️ Log Time", use_container_width=True):
+    if st.button("Log Time", use_container_width=True):
         if selected_task and selected_task != "No tasks available":
             add_time_entry({
                 'task_id': task_options[selected_task],
@@ -76,7 +81,7 @@ def app():
     st.markdown("---")
     
     # Time entries history
-    st.subheader("📋 Recent Time Entries")
+    st.subheader("Recent Time Entries")
     
     # Date filter
     col1, col2 = st.columns(2)
@@ -96,7 +101,7 @@ def app():
         entries_df = pd.DataFrame(filtered_entries)
         
         # Display summary by task
-        st.write("**Summary by Task:**")
+        st.write("Summary by Task:")
         summary = entries_df.groupby('task_title').agg({
             'duration_minutes': 'sum',
             'billable': 'first'
@@ -109,12 +114,12 @@ def app():
             with col1:
                 st.write(f"**{row['task_title']}**")
             with col2:
-                st.write(f"**{row['formatted_duration']}** {'💰' if row['billable'] else '📝'}")
+                st.write(f"**{row['formatted_duration']}** {'Billable' if row['billable'] else 'Non-Billable'}")
         
         st.markdown("---")
         
         # Detailed entries
-        st.write("**Detailed Entries:**")
+        st.write("Detailed Entries:")
         for entry in filtered_entries[:10]:  # Show last 10 entries
             with st.container():
                 col1, col2, col3 = st.columns([3, 1, 1])
@@ -126,7 +131,7 @@ def app():
                 with col2:
                     st.write(f"**{format_duration(entry['duration_minutes'])}**")
                 with col3:
-                    st.write("💰" if entry['billable'] else "📝")
+                    st.write("Billable" if entry['billable'] else "Non-Billable")
                 
                 st.markdown("---")
     else:
