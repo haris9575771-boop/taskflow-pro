@@ -9,7 +9,7 @@ import base64
 from io import BytesIO
 
 def app():
-    st.title("📈 Analytics & Reports")
+    st.title("Analytics & Reports")
     st.markdown("---")
     
     # Date range selection
@@ -22,10 +22,17 @@ def app():
         date_to = st.date_input("To Date", datetime.now().date())
     
     # Get data
-    tasks = get_tasks({
-        'date_from': date_from.strftime('%Y-%m-%d'),
-        'date_to': date_to.strftime('%Y-%m-%d')
-    })
+    if st.session_state.user_type == "team":
+        tasks = get_tasks({
+            'date_from': date_from.strftime('%Y-%m-%d'),
+            'date_to': date_to.strftime('%Y-%m-%d'),
+            'assigned_to': st.session_state.user_id
+        })
+    else:
+        tasks = get_tasks({
+            'date_from': date_from.strftime('%Y-%m-%d'),
+            'date_to': date_to.strftime('%Y-%m-%d')
+        })
     
     time_entries = get_time_entries({
         'date_from': date_from.strftime('%Y-%m-%d'),
@@ -62,23 +69,24 @@ def app():
     elif report_type == "Project Health":
         show_project_health(df_tasks)
     
-    # Export section
-    st.markdown("---")
-    st.subheader("📤 Export Reports")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("Export to Excel", use_container_width=True):
-            export_to_excel(df_tasks, df_time, date_from, date_to)
-    
-    with col2:
-        if st.button("Export to CSV", use_container_width=True):
-            export_to_csv(df_tasks, df_time)
+    # Export section (only for clients)
+    if st.session_state.user_type == "client":
+        st.markdown("---")
+        st.subheader("Export Reports")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("Export to Excel", use_container_width=True):
+                export_to_excel(df_tasks, df_time, date_from, date_to)
+        
+        with col2:
+            if st.button("Export to CSV", use_container_width=True):
+                export_to_csv(df_tasks, df_time)
 
 def show_executive_summary(df_tasks, df_time, date_from, date_to):
     """Display executive summary report"""
-    st.subheader("📊 Executive Summary")
+    st.subheader("Executive Summary")
     
     # KPI Metrics
     col1, col2, col3, col4 = st.columns(4)
@@ -129,7 +137,7 @@ def show_executive_summary(df_tasks, df_time, date_from, date_to):
 
 def show_task_performance(df_tasks, df_time):
     """Display task performance analytics"""
-    st.subheader("🚀 Task Performance Analysis")
+    st.subheader("Task Performance Analysis")
     
     # Completion rate by category
     if 'category' in df_tasks.columns:
@@ -149,7 +157,7 @@ def show_task_performance(df_tasks, df_time):
 
 def show_team_productivity(df_tasks, df_time):
     """Display team productivity analytics"""
-    st.subheader("👥 Team Productivity")
+    st.subheader("Team Productivity")
     
     # Tasks by assignee
     if 'assigned_to_name' in df_tasks.columns:
@@ -169,7 +177,7 @@ def show_team_productivity(df_tasks, df_time):
 
 def show_time_analysis(df_tasks, df_time):
     """Display time tracking analysis"""
-    st.subheader("⏰ Time Analysis")
+    st.subheader("Time Analysis")
     
     if not df_time.empty:
         # Time distribution by task
@@ -187,7 +195,7 @@ def show_time_analysis(df_tasks, df_time):
 
 def show_project_health(df_tasks):
     """Display project health indicators"""
-    st.subheader("🏥 Project Health Dashboard")
+    st.subheader("Project Health Dashboard")
     
     # Calculate health metrics
     total_tasks = len(df_tasks)
@@ -247,7 +255,7 @@ def export_to_excel(df_tasks, df_time, date_from, date_to):
         processed_data = output.getvalue()
         
         st.download_button(
-            label="📥 Download Excel Report",
+            label="Download Excel Report",
             data=processed_data,
             file_name=f"task_report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -262,7 +270,7 @@ def export_to_csv(df_tasks, df_time):
     with col1:
         tasks_csv = df_tasks.to_csv(index=False)
         st.download_button(
-            label="📥 Download Tasks CSV",
+            label="Download Tasks CSV",
             data=tasks_csv,
             file_name=f"tasks_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv"
@@ -272,7 +280,7 @@ def export_to_csv(df_tasks, df_time):
         if not df_time.empty:
             time_csv = df_time.to_csv(index=False)
             st.download_button(
-                label="📥 Download Time Data CSV",
+                label="Download Time Data CSV",
                 data=time_csv,
                 file_name=f"time_entries_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv"
