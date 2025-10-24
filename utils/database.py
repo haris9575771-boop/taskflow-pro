@@ -6,9 +6,7 @@ import os
 
 def get_db_connection():
     """Get database connection that works on both local and cloud"""
-    # On Streamlit Cloud, we need to use a writable directory
     db_path = 'task_management.db'
-    
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
@@ -128,7 +126,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-def get_tasks(filters=None, user_id=None):
+def get_tasks(filters=None):
     """Get tasks with advanced filtering"""
     conn = get_db_connection()
     
@@ -174,11 +172,6 @@ def get_tasks(filters=None, user_id=None):
         if filters.get('search'):
             query += " AND (t.title LIKE ? OR t.description LIKE ?)"
             params.extend([f"%{filters['search']}%", f"%{filters['search']}%"])
-    
-    # User-specific filtering
-    if user_id:
-        query += " AND (t.assigned_to = ? OR t.assigned_by = ?)"
-        params.extend([user_id, user_id])
     
     query += " ORDER BY t.priority DESC, t.due_date, t.created_date DESC"
     
