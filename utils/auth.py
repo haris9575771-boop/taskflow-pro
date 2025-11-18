@@ -15,14 +15,14 @@ def verify_password(password, hashed_password):
         return False
 
 def create_default_users():
-    """Create default users for the system"""
+    """Create default users for the system - ONLY LUKE WISE"""
     conn = get_db_connection()
     c = conn.cursor()
     
     # Check if users already exist
     c.execute("SELECT COUNT(*) FROM users")
     if c.fetchone()[0] == 0:
-        # Create Luke Wise (team)
+        # Create Luke Wise (team) - ONLY TEAM MEMBER
         c.execute('''
             INSERT INTO users (id, email, password_hash, name, type, preferences)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -47,19 +47,6 @@ def create_default_users():
             'client',
             json.dumps({'theme': 'light', 'notifications': True})
         ))
-        
-        # Create additional team members for demo
-        team_members = [
-            (3, 'sarah@burrichteam.com', 'SarahChen2024!', 'Sarah Chen', 'team'),
-            (4, 'mike@burrichteam.com', 'MikeRodriguez2024!', 'Mike Rodriguez', 'team'),
-            (5, 'emma@burrichteam.com', 'EmmaWilson2024!', 'Emma Wilson', 'team')
-        ]
-        
-        for user_id, email, password, name, user_type in team_members:
-            c.execute('''
-                INSERT INTO users (id, email, password_hash, name, type)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (user_id, email, hash_password(password), name, user_type))
     
     conn.commit()
     conn.close()
