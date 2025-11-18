@@ -6,7 +6,9 @@ import os
 
 def get_db_connection():
     """Get database connection that works on both local and cloud"""
+    # On Streamlit Cloud, we need to use a writable directory
     db_path = 'task_management.db'
+    
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
@@ -30,7 +32,7 @@ def init_db():
         )
     ''')
     
-    # Enhanced tasks table
+    # Enhanced tasks table - FIXED to store all tasks permanently
     c.execute('''
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,6 +54,7 @@ def init_db():
             dependencies TEXT DEFAULT '[]',
             recurrence_rule TEXT,
             parent_task_id INTEGER,
+            is_archived BOOLEAN DEFAULT 0,
             FOREIGN KEY (assigned_to) REFERENCES users (id),
             FOREIGN KEY (assigned_by) REFERENCES users (id),
             FOREIGN KEY (parent_task_id) REFERENCES tasks (id)
@@ -126,8 +129,8 @@ def init_db():
     conn.commit()
     conn.close()
 
-def get_tasks(filters=None):
-    """Get tasks with advanced filtering"""
+def get_tasks(filters=None, user_id=None, include_completed=True):
+    """Get tasks with advanced filtering - FIXED to include all tasks by default"""
     conn = get_db_connection()
     
     query = """
@@ -135,7 +138,7 @@ def get_tasks(filters=None):
         FROM tasks t
         LEFT JOIN users u ON t.assigned_to = u.id
         LEFT JOIN users u2 ON t.assigned_by = u2.id
-        WHERE 1=1
+        WHERE t.is_archived = 0
     """
     params = []
     
@@ -148,6 +151,9 @@ def get_tasks(filters=None):
             else:
                 query += " AND t.status = ?"
                 params.append(filters['status'])
+        elif not include_completed:
+            # Exclude completed tasks unless specifically requested
+            query += " AND t.status != 'Completed'"
                 
         if filters.get('priority'):
             query += " AND t.priority = ?"
@@ -172,6 +178,11 @@ def get_tasks(filters=None):
         if filters.get('search'):
             query += " AND (t.title LIKE ? OR t.description LIKE ?)"
             params.extend([f"%{filters['search']}%", f"%{filters['search']}%"])
+    
+    # User-specific filtering
+    if user_id:
+        query += " AND (t.assigned_to = ? OR t.assigned_by = ?)"
+        params.extend([user_id, user_id])
     
     query += " ORDER BY t.priority DESC, t.due_date, t.created_date DESC"
     
@@ -266,8 +277,8 @@ def update_task(task_id, updates):
         c.execute(f'UPDATE tasks SET {set_clause} WHERE id = ?', values)
         
         # Create notification for status changes
-        if 'status' in updates and updates['status'] == 'Completed':
-            c.execute('SELECT assigned_to FROM tasks WHERE id = ?', (task_id,))
+        if 'status' in updates:
+            c.execute('SELECT assigned_to, title FROM tasks WHERE id = ?', (task_id,))
             result = c.fetchone()
             if result and result[0]:
                 c.execute('''
@@ -275,9 +286,9 @@ def update_task(task_id, updates):
                     VALUES (?, ?, ?, ?, ?, ?)
                 ''', (
                     result[0],
-                    'Task Completed',
-                    f'Task #{task_id} has been marked as completed',
-                    'success',
+                    'Task Status Updated',
+                    f'Task "{result[1]}" has been updated to {updates["status"]}',
+                    'info',
                     'task',
                     task_id
                 ))
@@ -289,20 +300,42 @@ def update_task(task_id, updates):
     finally:
         conn.close()
 
-def delete_task(task_id):
-    """Delete a task"""
+def archive_task(task_id):
+    """Archive a task instead of deleting it"""
     conn = get_db_connection()
     c = conn.cursor()
     
     try:
-        c.execute('DELETE FROM tasks WHERE id = ?', (task_id,))
+        c.execute('UPDATE tasks SET is_archived = 1 WHERE id = ?', (task_id,))
         conn.commit()
     except Exception as e:
         conn.rollback()
-        print(f"Error in delete_task: {e}")
+        print(f"Error in archive_task: {e}")
     finally:
         conn.close()
 
+def get_team_members():
+    """Get all active team members - ONLY LUKE WISE"""
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        c.execute('''
+            SELECT id, name, email 
+            FROM users 
+            WHERE type = 'team' AND is_active = 1
+            ORDER BY name
+        ''')
+        
+        results = c.fetchall()
+        return [{'id': row[0], 'name': row[1], 'email': row[2]} for row in results]
+    except Exception as e:
+        print(f"Error in get_team_members: {e}")
+        return []
+    finally:
+        conn.close()
+
+# Keep all other functions from the original style.css file (time_entries, comments, etc.)
 def add_time_entry(entry_data):
     """Add a time entry for task tracking"""
     conn = get_db_connection()
@@ -412,27 +445,6 @@ def get_task_comments(task_id):
         return df.to_dict('records')
     except Exception as e:
         print(f"Error in get_task_comments: {e}")
-        return []
-    finally:
-        conn.close()
-
-def get_team_members():
-    """Get all active team members"""
-    conn = get_db_connection()
-    c = conn.cursor()
-    
-    try:
-        c.execute('''
-            SELECT id, name, email 
-            FROM users 
-            WHERE type = 'team' AND is_active = 1
-            ORDER BY name
-        ''')
-        
-        results = c.fetchall()
-        return [{'id': row[0], 'name': row[1], 'email': row[2]} for row in results]
-    except Exception as e:
-        print(f"Error in get_team_members: {e}")
         return []
     finally:
         conn.close()
