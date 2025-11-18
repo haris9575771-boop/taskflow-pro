@@ -8,12 +8,11 @@ def app():
     st.title("Team Collaboration")
     st.markdown("---")
     
-    # Team overview
+    # Team overview - ONLY LUKE WISE
     st.subheader("Team Overview")
     
     team_members = get_team_members()
     tasks = get_tasks()
-    df_tasks = pd.DataFrame(tasks) if tasks else pd.DataFrame()
     
     # Team stats
     col1, col2, col3, col4 = st.columns(4)
@@ -22,28 +21,31 @@ def app():
         st.metric("Team Members", len(team_members))
     
     with col2:
-        active_tasks = len(df_tasks[df_tasks['status'].isin(['Pending', 'In Progress'])]) if not df_tasks.empty else 0
+        active_tasks = len([t for t in tasks if t['status'] in ['Pending', 'In Progress']])
         st.metric("Active Tasks", active_tasks)
     
     with col3:
-        completed_this_week = len(df_tasks[
-            (df_tasks['status'] == 'Completed') & 
-            (pd.to_datetime(df_tasks['completed_date']).dt.isocalendar().week == datetime.now().isocalendar().week)
-        ]) if not df_tasks.empty else 0
+        current_week = datetime.now().isocalendar().week
+        completed_this_week = len([
+            t for t in tasks 
+            if t['status'] == 'Completed' and 
+            t.get('completed_date') and 
+            datetime.strptime(t['completed_date'], '%Y-%m-%d %H:%M:%S').isocalendar().week == current_week
+        ])
         st.metric("Completed This Week", completed_this_week)
     
     with col4:
-        avg_completion = df_tasks[df_tasks['status'] == 'Completed']['actual_hours'].mean() if not df_tasks.empty else 0
+        completed_tasks = [t for t in tasks if t['status'] == 'Completed' and t.get('actual_hours')]
+        avg_completion = sum(t['actual_hours'] for t in completed_tasks) / len(completed_tasks) if completed_tasks else 0
         st.metric("Avg. Completion (hrs)", f"{avg_completion:.1f}")
     
     st.markdown("---")
     
-    # Team members grid
-    st.subheader("Team Members")
+    # Team members grid - ONLY LUKE WISE
+    st.subheader("Team Member")
     
-    cols = st.columns(3)
-    for idx, member in enumerate(team_members):
-        with cols[idx % 3]:
+    if team_members:
+        for member in team_members:
             with st.container():
                 st.markdown(f"""
                 <div style='background: white; padding: 1.5rem; border-radius: 10px; text-align: center; box-shadow: 0 2px 10px rgba(0,0,0,0.08);'>
@@ -54,11 +56,14 @@ def app():
                 """, unsafe_allow_html=True)
                 
                 # Member stats
-                member_tasks = df_tasks[df_tasks['assigned_to'] == member['id']] if not df_tasks.empty else pd.DataFrame()
-                if not member_tasks.empty:
-                    st.write(f"**Tasks:** {len(member_tasks)}")
-                    completed = len(member_tasks[member_tasks['status'] == 'Completed'])
+                member_tasks = [t for t in tasks if t['assigned_to'] == member['id']]
+                if member_tasks:
+                    st.write(f"**Total Tasks:** {len(member_tasks)}")
+                    completed = len([t for t in member_tasks if t['status'] == 'Completed'])
                     st.write(f"**Completed:** {completed}")
+                    st.write(f"**Completion Rate:** {(completed/len(member_tasks)*100):.1f}%")
+    else:
+        st.info("No team members available")
     
     st.markdown("---")
     
@@ -99,22 +104,3 @@ def app():
                             st.rerun()
     else:
         st.info("No recent discussions. Start a conversation by commenting on tasks!")
-    
-    # Team workload overview
-    st.markdown("---")
-    st.subheader("Workload Distribution")
-    
-    if not df_tasks.empty:
-        workload_data = []
-        for member in team_members:
-            member_tasks = df_tasks[df_tasks['assigned_to'] == member['id']]
-            workload_data.append({
-                'Member': member['name'],
-                'Total Tasks': len(member_tasks),
-                'Pending': len(member_tasks[member_tasks['status'] == 'Pending']),
-                'In Progress': len(member_tasks[member_tasks['status'] == 'In Progress']),
-                'Completed': len(member_tasks[member_tasks['status'] == 'Completed'])
-            })
-        
-        workload_df = pd.DataFrame(workload_data)
-        st.dataframe(workload_df, use_container_width=True)
