@@ -318,10 +318,10 @@ def render_task_card(task, current_user_role):
 def initialize_google_services():
     """Initializes Google Sheets and Drive services using secrets."""
     try:
+        # Check if the required section exists
         if "sheets_credentials_json" in st.secrets:
-            # Load the JSON string from the secrets and parse it into a dictionary
-            # This robustly handles the credential structure
-            service_account_info = json.loads(st.secrets["sheets_credentials_json"]["json"])
+            # Read the secrets section directly as a dictionary (most robust method)
+            service_account_info = dict(st.secrets["sheets_credentials_json"])
             
             creds = service_account.Credentials.from_service_account_info(
                 service_account_info,
@@ -339,7 +339,8 @@ def initialize_google_services():
         st.error(f"Google API Error: {e.content.decode()}")
         return False
     except Exception as e:
-        st.error(f"An unexpected error occurred during setup: {e}")
+        # Catch generic setup errors, often caused by incorrect key structure
+        st.error(f"An unexpected error occurred during Google Service setup. Please ensure all required fields (type, project_id, private_key, client_email, etc.) are present and formatted correctly in secrets.toml. Error: {e}")
         return False
 
 
@@ -462,7 +463,7 @@ def user_view(df, role):
         st.success("No active tasks. You're all caught up!")
     
     for _, task in view.iterrows():
-        # FIX: Ensure we pass the actual user role for update permission logic
+        # Pass the current user's role to the card for correct update permissions
         render_task_card(task, role)
 
 # --- 13. MAIN APP FLOW ---
@@ -471,8 +472,9 @@ def main():
     
     # 0. Initialize Google Services only once
     if 'SERVICE' not in st.session_state:
+        # Stop execution if service initialization failed
         if not initialize_google_services():
-            return # Stop execution if service initialization failed
+            return 
 
     if not st.session_state.authenticated:
         login_ui()
