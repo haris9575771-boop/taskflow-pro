@@ -383,6 +383,135 @@ class DataManager:
     """Enterprise data manager with intelligent caching"""
     
     @staticmethod
+    def initialize_sheet_structure(sheet_id: str):
+        """Initialize Google Sheet with proper headers if empty"""
+        try:
+            if 'SHEETS_SERVICE' not in st.session_state:
+                raise GoogleServiceError("Google Sheets service not initialized")
+            
+            service = st.session_state.SHEETS_SERVICE
+            
+            # Check if sheet exists and get all sheets
+            spreadsheet = service.spreadsheets().get(spreadsheetId=sheet_id).execute()
+            sheets = spreadsheet.get('sheets', [])
+            
+            # Check if Task Log sheet exists
+            task_log_exists = any(sheet['properties']['title'] == 'Task Log' for sheet in sheets)
+            
+            if not task_log_exists:
+                # Create Task Log sheet
+                requests = [{
+                    'addSheet': {
+                        'properties': {
+                            'title': 'Task Log',
+                            'gridProperties': {
+                                'rowCount': 1000,
+                                'columnCount': len(COLUMNS)
+                            }
+                        }
+                    }
+                }]
+                
+                body = {'requests': requests}
+                service.spreadsheets().batchUpdate(
+                    spreadsheetId=sheet_id,
+                    body=body
+                ).execute()
+                
+                st.info("📝 Created 'Task Log' sheet")
+            
+            # Get data from Task Log sheet
+            result = service.spreadsheets().values().get(
+                spreadsheetId=sheet_id, 
+                range='Task Log!A1:K1'
+            ).execute()
+            
+            values = result.get('values', [])
+            
+            # If sheet is empty or headers don't match, create headers
+            if not values or len(values[0]) != len(COLUMNS) or values[0] != COLUMNS:
+                # Write headers
+                body = {
+                    'values': [COLUMNS]
+                }
+                
+                service.spreadsheets().values().update(
+                    spreadsheetId=sheet_id,
+                    range='Task Log!A1',
+                    valueInputOption='USER_ENTERED',
+                    body=body
+                ).execute()
+                
+                # Format headers
+                requests = [{
+                    'repeatCell': {
+                        'range': {
+                            'sheetId': next((s['properties']['sheetId'] for s in sheets if s['properties']['title'] == 'Task Log'), 0),
+                            'startRowIndex': 0,
+                            'endRowIndex': 1,
+                            'startColumnIndex': 0,
+                            'endColumnIndex': len(COLUMNS)
+                        },
+                        'cell': {
+                            'userEnteredFormat': {
+                                'backgroundColor': {
+                                    'red': 0.13,
+                                    'green': 0.13,
+                                    'blue': 0.13
+                                },
+                                'textFormat': {
+                                    'foregroundColor': {
+                                        'red': 1,
+                                        'green': 1,
+                                        'blue': 1
+                                    },
+                                    'bold': True,
+                                    'fontSize': 11
+                                },
+                                'horizontalAlignment': 'CENTER'
+                            }
+                        },
+                        'fields': 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+                    }
+                }]
+                
+                body = {'requests': requests}
+                service.spreadsheets().batchUpdate(
+                    spreadsheetId=sheet_id,
+                    body=body
+                ).execute()
+                
+                # Freeze header row
+                freeze_request = [{
+                    'updateSheetProperties': {
+                        'properties': {
+                            'sheetId': next((s['properties']['sheetId'] for s in sheets if s['properties']['title'] == 'Task Log'), 0),
+                            'gridProperties': {
+                                'frozenRowCount': 1
+                            }
+                        },
+                        'fields': 'gridProperties.frozenRowCount'
+                    }
+                }]
+                
+                body = {'requests': freeze_request}
+                service.spreadsheets().batchUpdate(
+                    spreadsheetId=sheet_id,
+                    body=body
+                ).execute()
+                
+                st.success("✅ Sheet structure initialized with headers")
+                
+            return True
+            
+        except HttpError as e:
+            st.error(f"❌ Google Sheets API Error during initialization: {e}")
+            raise
+        except Exception as e:
+            st.error(f"❌ Error initializing sheet structure: {e}")
+            raise
+    
+    @staticmethod
     @st.cache_data(ttl=300, show_spinner=False)  # 5 minute cache
     def fetch_sheet_data(sheet_id: str, range_name: str) -> pd.DataFrame:
         """Fetch data from Google Sheets with robust error handling"""
@@ -1125,6 +1254,16 @@ def main():
                     **Google Sheet ID:** `1iIBoWSZSvV-SF9u2Cxi-_fbYgg06-XI32UgF1ZJIxh4`
                     **Service Account:** `taskmanager@taks-manager-480110.iam.gserviceaccount.com`
                     """)
+                    return
+        
+        # Initialize sheet structure (creates headers if needed)
+        if 'sheet_initialized' not in st.session_state or not st.session_state.sheet_initialized:
+            with st.spinner("📝 Initializing Google Sheet structure..."):
+                try:
+                    DataManager.initialize_sheet_structure(AppConfig.SHEET_ID)
+                    st.session_state.sheet_initialized = True
+                except Exception as e:
+                    st.error(f"❌ Failed to initialize sheet structure: {str(e)}")
                     return
         
         # Load data if needed
