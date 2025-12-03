@@ -721,8 +721,11 @@ def render_task_card(task: pd.Series, current_user_role: str, card_index: int) -
     # Status styling
     status_class = f"status-{task['Status'].lower().replace(' ', '-')}"
     
-    # Due date styling
+    # Due date styling - FIXED: Calculate due_date_str and due_text
     due_date = task['Due Date']
+    due_date_str = ""
+    due_text = ""
+    
     if pd.notna(due_date):
         due_date_str = due_date.strftime('%b %d, %Y')
         days_remaining = (due_date.date() - datetime.date.today()).days
@@ -741,6 +744,7 @@ def render_task_card(task: pd.Series, current_user_role: str, card_index: int) -
             due_text = f"📅 Due {due_date_str}"
     else:
         due_style = "color: #9E9E9E;"
+        due_date_str = "No due date"
         due_text = "No due date"
     
     # Determine display name for "Created By"
@@ -804,6 +808,28 @@ def render_task_card(task: pd.Series, current_user_role: str, card_index: int) -
     # Update form (only for assigned user or Burtch)
     if current_user_role == task['Assigned To'] or current_user_role == "Burtch":
         with st.expander(f"🔄 Update Task #{task['ID']}", expanded=False):
+            # FIXED: Display task details for context in update form
+            st.markdown(f"""
+                <div style='margin: 10px 0; padding: 10px; background-color: #f9f9f9; border-radius: 5px; border-left: 3px solid {C21_GOLD};'>
+                    <p style='margin: 0; color: {C21_BLACK}; font-size: 0.95em;'>
+                        <strong>Task Description:</strong> {task['Description']}
+                    </p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            st.markdown(f"""
+                <div style='display: flex; justify-content: space-between; align-items: center; margin: 10px 0; padding: 10px; background-color: #f0f0f0; border-radius: 5px;'>
+                    <div>
+                        <span style='{due_style}; font-size: 0.9em;'>{due_text}</span>
+                    </div>
+                    <div>
+                        <span class='{status_class}' style='font-size: 0.9em;'>
+                            📊 Current Status: {task['Status']}
+                        </span>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+            
             # Create unique form key using task ID AND card index to prevent duplicates
             form_key = f"update_form_{task['ID']}_{card_index}_{int(time.time())}"
             
@@ -889,14 +915,14 @@ def manager_dashboard(df: pd.DataFrame) -> None:
     """Manager dashboard view for The Burtch Team"""
     st.title("👑 Manager Dashboard - The Burtch Team")
     
-    # Task creation section
+    # Task creation section - FIXED: Allow assigning to both Luke and Burtch
     with st.expander("➕ Create & Assign New Task", expanded=False):
         with st.form("create_task_form"):
             col1, col2 = st.columns(2)
             
             with col1:
                 task_title = st.text_input("Task Title *", max_chars=200, help="Enter a clear title for the task")
-                task_assigned = st.selectbox("Assign To *", ["Luke Wise"], help="Task will be assigned to Luke Wise")
+                task_assigned = st.selectbox("Assign To *", ["Luke Wise", "The Burtch Team"], help="Select who this task should be assigned to")
                 task_due_date = st.date_input(
                     "Due Date *",
                     min_value=datetime.date.today(),
@@ -934,11 +960,17 @@ def manager_dashboard(df: pd.DataFrame) -> None:
                         # Generate unique ID
                         new_id = int(time.time() * 1000) % 1000000
                         
+                        # Map display name to internal role
+                        if task_assigned == "Luke Wise":
+                            assigned_to = "Luke"
+                        else:
+                            assigned_to = "Burtch"
+                        
                         # Prepare new row
                         new_row = [
                             new_id,
                             task_title,
-                            "Luke",  # Always assign to Luke
+                            assigned_to,  # Use mapped role
                             task_due_date.strftime('%Y-%m-%d'),
                             'Assigned',
                             task_priority,
@@ -966,7 +998,7 @@ def manager_dashboard(df: pd.DataFrame) -> None:
                             new_row
                         )
                         
-                        st.success(f"✅ Task '{task_title}' created and assigned to Luke Wise!")
+                        st.success(f"✅ Task '{task_title}' created and assigned to {task_assigned}!")
                         st.session_state.data_loaded = False
                         st.cache_data.clear()
                         time.sleep(1.5)
@@ -1055,12 +1087,16 @@ def manager_dashboard(df: pd.DataFrame) -> None:
     
     st.markdown("---")
     
-    # Dashboard metrics
+    # Dashboard metrics - FIXED: Include both Luke's and Burtch's tasks
     active_df = df[~df['Status'].isin(['Completed', 'Archived'])].copy()
+    burtch_tasks = df[df['Assigned To'] == 'Burtch']
+    luke_tasks = df[df['Assigned To'] == 'Luke']
     
     metrics = {
         "Total Tasks": len(df),
         "Active Tasks": len(active_df),
+        "Luke's Tasks": len(luke_tasks),
+        "Burtch's Tasks": len(burtch_tasks),
         "High Priority": len(active_df[active_df['Priority'] == 1]),
         "Overdue": len(active_df[pd.to_datetime(active_df['Due Date'], errors='coerce').dt.date < datetime.date.today()])
     }
@@ -1128,8 +1164,8 @@ def manager_dashboard(df: pd.DataFrame) -> None:
     
     st.markdown("---")
     
-    # Task management tabs
-    tab1, tab2, tab3 = st.tabs(["📋 All Tasks", "👥 Luke's Tasks", "📈 Trends"])
+    # Task management tabs - FIXED: Changed to show assigned tasks for both users
+    tab1, tab2, tab3, tab4 = st.tabs(["📋 All Tasks", "👥 Assigned Tasks", "📈 Trends", "🧑‍💼 My Tasks"])
     
     with tab1:
         st.subheader("All Tasks Overview")
@@ -1151,29 +1187,29 @@ def manager_dashboard(df: pd.DataFrame) -> None:
         with col3:
             assigned_filter = st.multiselect(
                 "Filter by Assignee",
-                ["Luke Wise", "The Burtch Team"],
-                default=["Luke Wise"]
+                ["Luke", "Burtch"],
+                default=["Luke", "Burtch"]
             )
         
-        # Apply filters - convert display names to internal roles
-        internal_roles = []
-        if "Luke Wise" in assigned_filter:
-            internal_roles.append("Luke")
-        if "The Burtch Team" in assigned_filter:
-            internal_roles.append("Burtch")
-        
+        # Apply filters
         filtered_df = df[
             df['Status'].isin(status_filter) &
             df['Priority'].isin(priority_filter) &
-            df['Assigned To'].isin(internal_roles)
+            df['Assigned To'].isin(assigned_filter)
         ].sort_values(['Priority', 'Due Date'], ascending=[True, True])
         
         if not filtered_df.empty:
-            # Display table
+            # Display table with better formatting
+            display_df = filtered_df.copy()
+            display_df['Due Date'] = display_df['Due Date'].dt.strftime('%Y-%m-%d')
+            display_df['Priority'] = display_df['Priority'].apply(
+                lambda x: f"{x} - {'High' if x == 1 else 'Medium' if x == 2 else 'Low'}"
+            )
+            
             st.dataframe(
-                filtered_df.style.apply(
-                    lambda x: ['background: #FFEBEE' if x['Priority'] == 1 else 
-                              'background: #FFF3E0' if x['Priority'] == 2 else 
+                display_df.style.apply(
+                    lambda x: ['background: #FFEBEE' if x['Priority'] == '1 - High' else 
+                              'background: #FFF3E0' if x['Priority'] == '2 - Medium' else 
                               'background: #E8F5E9' for _ in x],
                     axis=1
                 ),
@@ -1184,29 +1220,58 @@ def manager_dashboard(df: pd.DataFrame) -> None:
             st.info("No tasks match the selected filters.")
     
     with tab2:
-        st.subheader("Luke Wise's Tasks")
-        luke_tasks = df[df['Assigned To'] == "Luke"]
-        if not luke_tasks.empty:
-            # Sort by priority and due date
-            luke_tasks = luke_tasks.sort_values(['Priority', 'Due Date'], ascending=[True, True])
-            
-            # Display upcoming tasks (not completed/archived)
-            upcoming_tasks = luke_tasks[~luke_tasks['Status'].isin(['Completed', 'Archived'])]
-            if not upcoming_tasks.empty:
-                st.markdown(f"### 📅 Upcoming Tasks ({len(upcoming_tasks)})")
-                for idx, (_, task) in enumerate(upcoming_tasks.iterrows()):
-                    render_task_card(task, "Burtch", idx)
-            else:
-                st.success("🎉 All of Luke's tasks are completed or archived!")
-            
-            # Display completed tasks
-            completed_tasks = luke_tasks[luke_tasks['Status'] == 'Completed']
-            if not completed_tasks.empty:
-                with st.expander(f"✅ Completed Tasks ({len(completed_tasks)})", expanded=False):
-                    for idx, (_, task) in enumerate(completed_tasks.iterrows()):
+        st.subheader("Assigned Tasks Overview")
+        
+        # Show tasks by assignee
+        assignee_tabs = st.tabs(["👤 Luke's Tasks", "👑 Burtch's Tasks"])
+        
+        with assignee_tabs[0]:
+            luke_tasks = df[df['Assigned To'] == "Luke"]
+            if not luke_tasks.empty:
+                # Sort by priority and due date
+                luke_tasks = luke_tasks.sort_values(['Priority', 'Due Date'], ascending=[True, True])
+                
+                # Display upcoming tasks (not completed/archived)
+                upcoming_tasks = luke_tasks[~luke_tasks['Status'].isin(['Completed', 'Archived'])]
+                if not upcoming_tasks.empty:
+                    st.markdown(f"### 📅 Luke's Upcoming Tasks ({len(upcoming_tasks)})")
+                    for idx, (_, task) in enumerate(upcoming_tasks.iterrows()):
                         render_task_card(task, "Burtch", idx)
-        else:
-            st.info("No tasks assigned to Luke Wise.")
+                else:
+                    st.success("🎉 All of Luke's tasks are completed or archived!")
+                
+                # Display completed tasks
+                completed_tasks = luke_tasks[luke_tasks['Status'] == 'Completed']
+                if not completed_tasks.empty:
+                    with st.expander(f"✅ Luke's Completed Tasks ({len(completed_tasks)})", expanded=False):
+                        for idx, (_, task) in enumerate(completed_tasks.iterrows()):
+                            render_task_card(task, "Burtch", idx)
+            else:
+                st.info("No tasks assigned to Luke.")
+        
+        with assignee_tabs[1]:
+            burtch_tasks = df[df['Assigned To'] == "Burtch"]
+            if not burtch_tasks.empty:
+                # Sort by priority and due date
+                burtch_tasks = burtch_tasks.sort_values(['Priority', 'Due Date'], ascending=[True, True])
+                
+                # Display upcoming tasks (not completed/archived)
+                upcoming_tasks = burtch_tasks[~burtch_tasks['Status'].isin(['Completed', 'Archived'])]
+                if not upcoming_tasks.empty:
+                    st.markdown(f"### 📅 Burtch's Upcoming Tasks ({len(upcoming_tasks)})")
+                    for idx, (_, task) in enumerate(upcoming_tasks.iterrows()):
+                        render_task_card(task, "Burtch", idx)
+                else:
+                    st.success("🎉 All of Burtch's tasks are completed or archived!")
+                
+                # Display completed tasks
+                completed_tasks = burtch_tasks[burtch_tasks['Status'] == 'Completed']
+                if not completed_tasks.empty:
+                    with st.expander(f"✅ Burtch's Completed Tasks ({len(completed_tasks)})", expanded=False):
+                        for idx, (_, task) in enumerate(completed_tasks.iterrows()):
+                            render_task_card(task, "Burtch", idx)
+            else:
+                st.info("No tasks assigned to The Burtch Team.")
     
     with tab3:
         st.subheader("Performance Trends")
@@ -1248,6 +1313,31 @@ def manager_dashboard(df: pd.DataFrame) -> None:
                 st.plotly_chart(fig4, use_container_width=True)
         else:
             st.info("No data available for trend analysis.")
+    
+    with tab4:
+        st.subheader("My Tasks (The Burtch Team)")
+        my_tasks = df[df['Assigned To'] == "Burtch"]
+        if not my_tasks.empty:
+            # Sort by priority and due date
+            my_tasks = my_tasks.sort_values(['Priority', 'Due Date'], ascending=[True, True])
+            
+            # Display upcoming tasks (not completed/archived)
+            upcoming_tasks = my_tasks[~my_tasks['Status'].isin(['Completed', 'Archived'])]
+            if not upcoming_tasks.empty:
+                st.markdown(f"### 📅 My Upcoming Tasks ({len(upcoming_tasks)})")
+                for idx, (_, task) in enumerate(upcoming_tasks.iterrows()):
+                    render_task_card(task, "Burtch", idx)
+            else:
+                st.success("🎉 All my tasks are completed or archived!")
+            
+            # Display completed tasks
+            completed_tasks = my_tasks[my_tasks['Status'] == 'Completed']
+            if not completed_tasks.empty:
+                with st.expander(f"✅ My Completed Tasks ({len(completed_tasks)})", expanded=False):
+                    for idx, (_, task) in enumerate(completed_tasks.iterrows()):
+                        render_task_card(task, "Burtch", idx)
+        else:
+            st.info("No tasks assigned to you.")
 
 def user_dashboard(df: pd.DataFrame, role: str) -> None:
     """User dashboard view for Luke Wise"""
