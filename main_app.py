@@ -112,6 +112,13 @@ LUKE_ROLE = "Luke"
 ADMIN_ROLE = "Admin"
 ROLES = [BURTCH_ROLE, LUKE_ROLE, ADMIN_ROLE]
 
+# Hardcoded application configuration variables
+SHEET_ID = "1iIBoWSZSvV-SF9u2Cxi-_fbYgg06-XI32UgF1ZJIxh4"
+DRIVE_FOLDER_ID = "" 
+BURTCH_PASSWORD = "jayson0922"
+LUKE_PASSWORD = "luke29430"
+ADMIN_PASSWORD = "admin_secure_password" # Set a strong password here!
+
 
 # --- 5. STATUS AND PRIORITY DEFINITIONS ---
 STATUS_LVLS = ['Assigned', 'In Progress', 'Pending', 'Completed', 'Archived']
@@ -122,9 +129,19 @@ COLUMNS = ['ID', 'Title', 'Assigned To', 'Due Date', 'Status', 'Priority', 'Desc
 
 
 # --- 7. UTILITY FUNCTIONS ---
+@st.cache_data(ttl=600) # Cache data for 10 minutes
 def get_sheets_data(sheet_id, range_name):
     """Retrieves data from a specified Google Sheet range."""
-    result = SERVICE.spreadsheets().values().get(spreadsheetId=sheet_id, range=range_name).execute()
+    # Build the service object (SERVICE is defined globally after auth)
+    # Using st.session_state ensures the service object is available in the cached function
+    try:
+        service = st.session_state.SERVICE 
+    except AttributeError:
+        # Re-initialize the service if it's missing (shouldn't happen if main() runs first)
+        st.error("Google Sheets Service not initialized.")
+        st.stop()
+        
+    result = service.spreadsheets().values().get(spreadsheetId=sheet_id, range=range_name).execute()
     values = result.get('values', [])
     if not values:
         return pd.DataFrame(columns=COLUMNS)
@@ -158,7 +175,7 @@ def update_sheet_row(sheet_id, range_name, row_index, updated_data):
         'values': update_values
     }
     
-    result = SERVICE.spreadsheets().values().update(
+    result = st.session_state.SERVICE.spreadsheets().values().update(
         spreadsheetId=sheet_id, 
         range=update_range,
         valueInputOption='USER_ENTERED',
@@ -173,7 +190,7 @@ def append_sheet_row(sheet_id, range_name, new_data):
         'values': [new_data]
     }
     
-    result = SERVICE.spreadsheets().values().append(
+    result = st.session_state.SERVICE.spreadsheets().values().append(
         spreadsheetId=sheet_id,
         range=range_name,
         valueInputOption='USER_ENTERED',
@@ -189,7 +206,7 @@ def create_google_drive_folder(folder_name, parent_folder_id):
         'mimeType': 'application/vnd.google-apps.folder',
         'parents': [parent_folder_id]
     }
-    file = DRIVE_SERVICE.files().create(body=file_metadata, fields='id').execute()
+    file = st.session_state.DRIVE_SERVICE.files().create(body=file_metadata, fields='id').execute()
     return file.get('id')
 
 
@@ -296,33 +313,34 @@ def render_task_card(task, current_user_role):
                         st.stop()
 
 
-# --- 10. GLOBAL CONFIGURATION & GOOGLE SHEETS AUTHENTICATION (Secrets are now only for Service Account) ---
-# Hardcoded application configuration variables
-SHEET_ID = "1iIBoWSZSvV-SF9u2Cxi-_fbYgg06-XI32UgF1ZJIxh4"
-DRIVE_FOLDER_ID = "" # Keep this blank as per original file
-BURTCH_PASSWORD = "jayson0922"
-LUKE_PASSWORD = "luke29430"
-# NOTE: The Admin password must also be hardcoded now. You should set this to a secure value.
-ADMIN_PASSWORD = "admin_secure_password" # <-- Set a strong password here!
+# --- 10. GOOGLE SHEETS AUTHENTICATION ---
+# Global service objects will be stored in st.session_state after successful auth
+def initialize_google_services():
+    """Initializes Google Sheets and Drive services using secrets."""
+    try:
+        if "sheets_credentials_json" in st.secrets:
+            # Load the JSON string from the secrets and parse it into a dictionary
+            # This robustly handles the credential structure
+            service_account_info = json.loads(st.secrets["sheets_credentials_json"]["json"])
+            
+            creds = service_account.Credentials.from_service_account_info(
+                service_account_info,
+                scopes=['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.file']
+            )
+            
+            st.session_state.SERVICE = build('sheets', 'v4', credentials=creds)
+            st.session_state.DRIVE_SERVICE = build('drive', 'v3', credentials=creds)
+            return True
+        else:
+            st.error("Missing Google Sheets Service Account credentials in secrets.toml. Please ensure the [sheets_credentials_json] section is present.")
+            return False
 
-try:
-    if "sheets_service_account" in st.secrets:
-        creds = service_account.Credentials.from_service_account_info(
-            st.secrets["sheets_service_account"],
-            scopes=['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.file']
-        )
-        SERVICE = build('sheets', 'v4', credentials=creds)
-        DRIVE_SERVICE = build('drive', 'v3', credentials=creds)
-    else:
-        st.error("Missing Google Sheets Service Account credentials in secrets.toml. Please ensure the [sheets_service_account] section is present.")
-        st.stop()
-
-except HttpError as e:
-    st.error(f"Google API Error: {e.content.decode()}")
-    st.stop()
-except Exception as e:
-    st.error(f"An unexpected error occurred during setup: {e}")
-    st.stop()
+    except HttpError as e:
+        st.error(f"Google API Error: {e.content.decode()}")
+        return False
+    except Exception as e:
+        st.error(f"An unexpected error occurred during setup: {e}")
+        return False
 
 
 # --- 11. TASK MANAGEMENT VIEWS ---
@@ -362,27 +380,21 @@ def admin_view(df):
                 ]
                 
                 try:
-                    # 1. Append to Google Sheet
-                    append_sheet_row(SHEET_ID, "Task Log!A:J", new_row)
                     
-                    # 2. Optionally create Drive folder and update link
+                    # 2. Optionally create Drive folder and update link in the new_row data
                     if DRIVE_FOLDER_ID:
                         folder_name = f"{task_assigned} - Task {new_id} - {task_title}"
                         new_folder_id = create_google_drive_folder(folder_name, DRIVE_FOLDER_ID)
                         folder_link = f"https://drive.google.com/drive/folders/{new_folder_id}"
-                        
-                        # Update the dataframe
-                        updated_row = new_row
-                        updated_row[7] = folder_link # Index 7 is 'Google Drive Link'
-                        
-                        # Find the row index of the newly added task to update the drive link column
-                        # This requires re-fetching data or finding the row, which is complex.
-                        # For simplicity, we assume the last row is the one to update, or better, we re-fetch.
-                        st.session_state.data_loaded = False
-                        st.rerun() 
+                        new_row[7] = folder_link # Index 7 is 'Google Drive Link'
+                    
+                    # 1. Append to Google Sheet (using the row potentially updated with Drive Link)
+                    append_sheet_row(SHEET_ID, "Task Log!A:J", new_row)
                     
                     st.success(f"Task '{task_title}' created and assigned to {task_assigned}!")
                     st.session_state.data_loaded = False
+                    st.cache_data.clear() # Clear cache to force reload of fresh data
+                    time.sleep(1)
                     st.rerun() # Rerun to refresh data and show new task
                     
                 except Exception as e:
@@ -404,7 +416,11 @@ def admin_view(df):
     col_a, col_b, col_c = st.columns(3)
     col_a.metric("Total Active Tasks", len(active_df))
     col_b.metric("High Priority (1)", len(active_df[active_df['Priority'] == 1]))
-    col_c.metric("Overdue Tasks", len(active_df[active_df['Due Date'] < datetime.date.today().strftime('%Y-%m-%d')]))
+    
+    # Calculate overdue tasks safely
+    today = datetime.date.today()
+    overdue_count = len(active_df[pd.to_datetime(active_df['Due Date'], errors='coerce').dt.date < today])
+    col_c.metric("Overdue Tasks", overdue_count)
     
     # Show the table of all active tasks
     st.dataframe(active_df, use_container_width=True, hide_index=True)
@@ -431,8 +447,12 @@ def user_view(df, role):
     col_a, col_b, col_c = st.columns(3)
     col_a.metric("Total Tasks", len(my_tasks))
     col_b.metric("In Progress", len(my_tasks[my_tasks['Status'] == 'In Progress']))
-    col_c.metric("Completed Today", len(my_tasks[(my_tasks['Status'] == 'Completed') & (my_tasks['Last Modified'].str.contains(datetime.date.today().strftime('%Y-%m-%d')))]))
     
+    # Calculate tasks completed today safely
+    today_str = datetime.date.today().strftime('%Y-%m-%d')
+    completed_today_count = len(my_tasks[(my_tasks['Status'] == 'Completed') & (my_tasks['Last Modified'].str.startswith(today_str, na=False))])
+    col_c.metric("Completed Today", completed_today_count)
+
     st.subheader("Filter and View Tasks")
     f_stat = st.multiselect("Filter by Status", STATUS_LVLS, default=['Assigned', 'In Progress', 'Pending'])
     
@@ -442,12 +462,18 @@ def user_view(df, role):
         st.success("No active tasks. You're all caught up!")
     
     for _, task in view.iterrows():
+        # FIX: Ensure we pass the actual user role for update permission logic
         render_task_card(task, role)
 
 # --- 13. MAIN APP FLOW ---
 def main():
     if 'authenticated' not in st.session_state: st.session_state.authenticated = False
     
+    # 0. Initialize Google Services only once
+    if 'SERVICE' not in st.session_state:
+        if not initialize_google_services():
+            return # Stop execution if service initialization failed
+
     if not st.session_state.authenticated:
         login_ui()
     else:
@@ -457,6 +483,7 @@ def main():
             st.markdown(f"**USER:** {st.session_state.role}")
             if st.button("REFRESH DATA", use_container_width=True):
                 st.session_state.data_loaded = False
+                st.cache_data.clear() # Clear cache
                 st.rerun()
             st.markdown("---")
             if st.button("LOGOUT", use_container_width=True):
@@ -467,7 +494,8 @@ def main():
         if not st.session_state.get('data_loaded'):
             with st.spinner("SYNCING TASKS FROM GOOGLE SHEETS..."):
                 try:
-                    df = get_sheets_data(SHEET_ID, "Task Log!A:J")
+                    # Function is decorated with @st.cache_data now
+                    df = get_sheets_data(SHEET_ID, "Task Log!A:J") 
                     st.session_state.df = df
                     st.session_state.data_loaded = True
                 except Exception as e:
