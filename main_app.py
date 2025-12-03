@@ -295,101 +295,88 @@ class DataValidationError(TaskManagerError):
     pass
 
 # --- 5. GOOGLE SERVICE MANAGER (Enterprise Grade) ---
-class GoogleServiceManager:
-    """Enterprise-grade Google service manager with retry logic"""
-    
-    _instance = None
-    _sheets_service = None
-    _drive_service = None
-    _initialized = False
-    
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(GoogleServiceManager, cls).__new__(cls)
-        return cls._instance
-    
-    @classmethod
-    def initialize(cls, credentials_json: str = None) -> bool:
-        """Initialize Google services with robust error handling"""
-        if cls._initialized:
-            return True
-            
-        try:
-            # Parse credentials from JSON string
-            if credentials_json:
-                service_account_info = json.loads(credentials_json)
-            else:
-                # Try to get from Streamlit secrets
-                if "sheets_credentials_json" in st.secrets:
-                    service_account_info = dict(st.secrets["sheets_credentials_json"])
-                else:
-                    st.error("Google Sheets credentials not found in secrets")
+def initialize_google_services():
+    """Initialize Google services with robust error handling"""
+    try:
+        # Check if credentials exist in secrets
+        if "sheets_credentials_json" not in st.secrets:
+            st.error("❌ Google Sheets credentials not found in secrets.toml")
+            st.info("""
+            Please ensure your secrets.toml contains:
+            ```
+            [sheets_credentials_json]
+            type = "service_account"
+            project_id = "taks-manager-480110"
+            private_key_id = "59ea17ae4c87a5ac97b9648bd6c93ff2acf6d0af"
+            private_key = \"\"\"-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\"\"\"
+            client_email = "taskmanager@taks-manager-480110.iam.gserviceaccount.com"
+            client_id = "110405422782484657058"
+            auth_uri = "https://accounts.google.com/o/oauth2/auth"
+            token_uri = "https://oauth2.googleapis.com/token"
+            auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
+            client_x509_cert_url = "https://www.googleapis.com/robot/v1/metadata/x509/taskmanager%40taks-manager-480110.iam.gserviceaccount.com"
+            universe_domain = "googleapis.com"
+            ```
+            """)
+            return False
+        
+        # Get credentials from secrets
+        creds_dict = dict(st.secrets["sheets_credentials_json"])
+        
+        # Fix private key formatting
+        if 'private_key' in creds_dict:
+            creds_dict['private_key'] = creds_dict['private_key'].replace('\\n', '\n')
+        
+        # Create credentials
+        credentials = service_account.Credentials.from_service_account_info(
+            creds_dict,
+            scopes=[
+                'https://www.googleapis.com/auth/spreadsheets',
+                'https://www.googleapis.com/auth/drive.file'
+            ]
+        )
+        
+        # Initialize services with retry logic
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                sheets_service = build('sheets', 'v4', credentials=credentials)
+                drive_service = build('drive', 'v3', credentials=credentials)
+                
+                # Test the connection
+                sheets_service.spreadsheets().get(spreadsheetId=AppConfig.SHEET_ID).execute()
+                
+                # Store services in session state
+                st.session_state.SHEETS_SERVICE = sheets_service
+                st.session_state.DRIVE_SERVICE = drive_service
+                st.session_state.google_initialized = True
+                
+                return True
+                
+            except HttpError as e:
+                if attempt == max_retries - 1:
+                    st.error(f"❌ Google API Error: {str(e)}")
+                    if "not have permission" in str(e):
+                        st.info("""
+                        Please ensure:
+                        1. The Google Sheet is shared with the service account email: taskmanager@taks-manager-480110.iam.gserviceaccount.com
+                        2. The service account has Editor access to the Google Sheet
+                        3. The Google Drive folder (if used) is also shared with the same service account
+                        """)
                     return False
-            
-            # Validate required fields
-            required_fields = ["type", "project_id", "private_key_id", 
-                              "private_key", "client_email", "token_uri"]
-            missing_fields = [field for field in required_fields 
-                            if field not in service_account_info]
-            
-            if missing_fields:
-                st.error(f"Missing required fields in service account: {missing_fields}")
-                return False
-            
-            # Fix private key formatting if needed
-            if 'private_key' in service_account_info:
-                service_account_info['private_key'] = service_account_info['private_key'].replace('\\n', '\n')
-            
-            # Create credentials
-            credentials = service_account.Credentials.from_service_account_info(
-                service_account_info,
-                scopes=[
-                    'https://www.googleapis.com/auth/spreadsheets',
-                    'https://www.googleapis.com/auth/drive.file'
-                ]
-            )
-            
-            # Initialize services with retry
-            for attempt in range(AppConfig.MAX_RETRY_ATTEMPTS):
-                try:
-                    cls._sheets_service = build('sheets', 'v4', credentials=credentials)
-                    cls._drive_service = build('drive', 'v3', credentials=credentials)
-                    cls._initialized = True
-                    return True
-                except (HttpError, GoogleAuthError) as e:
-                    if attempt == AppConfig.MAX_RETRY_ATTEMPTS - 1:
-                        raise GoogleServiceError(f"Failed to initialize Google services: {str(e)}")
-                    time.sleep(AppConfig.RETRY_DELAY_SECONDS)
-                    
-        except json.JSONDecodeError as e:
-            st.error(f"Invalid JSON format in credentials: {str(e)}")
-            return False
-        except Exception as e:
-            st.error(f"Unexpected error initializing Google services: {str(e)}")
-            st.error(traceback.format_exc())
-            return False
-            
+                time.sleep(2)  # Wait before retry
+                
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    st.error(f"❌ Failed to initialize Google services: {str(e)}")
+                    return False
+                time.sleep(2)  # Wait before retry
+        
         return False
-    
-    @classmethod
-    def get_sheets_service(cls):
-        if not cls._initialized:
-            raise GoogleServiceError("Google services not initialized")
-        return cls._sheets_service
-    
-    @classmethod
-    def get_drive_service(cls):
-        if not cls._initialized:
-            raise GoogleServiceError("Google services not initialized")
-        return cls._drive_service
-    
-    @classmethod
-    def reset(cls):
-        """Reset services (for testing/reinitialization)"""
-        cls._instance = None
-        cls._sheets_service = None
-        cls._drive_service = None
-        cls._initialized = False
+        
+    except Exception as e:
+        st.error(f"❌ Unexpected error initializing Google services: {str(e)}")
+        return False
 
 # --- 6. DATA MANAGER WITH CACHING ---
 class DataManager:
@@ -397,10 +384,14 @@ class DataManager:
     
     @staticmethod
     @st.cache_data(ttl=300, show_spinner=False)  # 5 minute cache
-    def fetch_sheet_data(_service, sheet_id: str, range_name: str) -> pd.DataFrame:
+    def fetch_sheet_data(sheet_id: str, range_name: str) -> pd.DataFrame:
         """Fetch data from Google Sheets with robust error handling"""
         try:
-            result = _service.spreadsheets().values().get(
+            if 'SHEETS_SERVICE' not in st.session_state:
+                raise GoogleServiceError("Google Sheets service not initialized")
+            
+            service = st.session_state.SHEETS_SERVICE
+            result = service.spreadsheets().values().get(
                 spreadsheetId=sheet_id, 
                 range=range_name
             ).execute()
@@ -436,15 +427,19 @@ class DataManager:
             return df[COLUMNS]
             
         except HttpError as e:
-            st.error(f"Google Sheets API Error: {e}")
+            st.error(f"❌ Google Sheets API Error: {e}")
             raise
         except Exception as e:
-            st.error(f"Error fetching sheet data: {e}")
+            st.error(f"❌ Error fetching sheet data: {e}")
             raise
     
     @staticmethod
-    def update_sheet_row(service, sheet_id: str, row_index: int, updated_data: list) -> dict:
+    def update_sheet_row(sheet_id: str, row_index: int, updated_data: list) -> dict:
         """Update a single row in Google Sheet"""
+        if 'SHEETS_SERVICE' not in st.session_state:
+            raise GoogleServiceError("Google Sheets service not initialized")
+        
+        service = st.session_state.SHEETS_SERVICE
         # Convert to 1-based indexing for Sheets API
         update_range = f"A{row_index + 2}:K{row_index + 2}"
         
@@ -460,8 +455,12 @@ class DataManager:
         return result
     
     @staticmethod
-    def append_sheet_row(service, sheet_id: str, range_name: str, new_data: list) -> dict:
+    def append_sheet_row(sheet_id: str, range_name: str, new_data: list) -> dict:
         """Append a new row to Google Sheet"""
+        if 'SHEETS_SERVICE' not in st.session_state:
+            raise GoogleServiceError("Google Sheets service not initialized")
+        
+        service = st.session_state.SHEETS_SERVICE
         body = {'values': [new_data]}
         
         result = service.spreadsheets().values().append(
@@ -475,8 +474,12 @@ class DataManager:
         return result
     
     @staticmethod
-    def create_drive_folder(service, folder_name: str, parent_folder_id: str = None) -> str:
+    def create_drive_folder(folder_name: str, parent_folder_id: str = None) -> str:
         """Create a folder in Google Drive"""
+        if 'DRIVE_SERVICE' not in st.session_state:
+            raise GoogleServiceError("Google Drive service not initialized")
+        
+        service = st.session_state.DRIVE_SERVICE
         file_metadata = {
             'name': folder_name,
             'mimeType': 'application/vnd.google-apps.folder',
@@ -485,12 +488,16 @@ class DataManager:
         if parent_folder_id:
             file_metadata['parents'] = [parent_folder_id]
         
-        file = service.files().create(
-            body=file_metadata, 
-            fields='id, webViewLink'
-        ).execute()
-        
-        return file.get('webViewLink', f"https://drive.google.com/drive/folders/{file.get('id')}")
+        try:
+            file = service.files().create(
+                body=file_metadata, 
+                fields='id, webViewLink'
+            ).execute()
+            
+            return file.get('webViewLink', f"https://drive.google.com/drive/folders/{file.get('id')}")
+        except Exception as e:
+            st.error(f"❌ Failed to create Drive folder: {str(e)}")
+            return ""
 
 # --- 7. UI COMPONENTS ---
 def render_login_ui() -> None:
@@ -659,7 +666,6 @@ def render_task_card(task: pd.Series, current_user_role: str) -> None:
                         # Update Google Sheet
                         updated_data = df.loc[row_index, COLUMNS].tolist()
                         DataManager.update_sheet_row(
-                            GoogleServiceManager.get_sheets_service(),
                             AppConfig.SHEET_ID,
                             row_index,
                             updated_data
@@ -751,7 +757,6 @@ def admin_dashboard(df: pd.DataFrame) -> None:
                     if create_drive_folder and AppConfig.DRIVE_FOLDER_ID:
                         folder_name = f"Task_{new_id}_{task_title[:30]}"
                         drive_link = DataManager.create_drive_folder(
-                            GoogleServiceManager.get_drive_service(),
                             folder_name,
                             AppConfig.DRIVE_FOLDER_ID
                         )
@@ -759,7 +764,6 @@ def admin_dashboard(df: pd.DataFrame) -> None:
                     
                     # Append to Google Sheet
                     DataManager.append_sheet_row(
-                        GoogleServiceManager.get_sheets_service(),
                         AppConfig.SHEET_ID,
                         "Task Log!A:K",
                         new_row
@@ -1026,34 +1030,6 @@ def main():
         st.session_state.user_info = None
         st.rerun()
     
-    # Initialize Google services
-    if 'google_initialized' not in st.session_state:
-        with st.spinner("🔄 Initializing Google services..."):
-            try:
-                # Read credentials from secrets
-                if "sheets_credentials_json" in st.secrets:
-                    # Direct dictionary access (correct way)
-                    service_account_info = dict(st.secrets["sheets_credentials_json"])
-                    
-                    # Convert to JSON string if it's a dict
-                    if isinstance(service_account_info, dict):
-                        credentials_json = json.dumps(service_account_info)
-                    else:
-                        credentials_json = service_account_info
-                        
-                    if GoogleServiceManager.initialize(credentials_json):
-                        st.session_state.google_initialized = True
-                    else:
-                        st.error("Failed to initialize Google services")
-                        st.stop()
-                else:
-                    st.error("Google Sheets credentials not found in secrets.toml")
-                    st.stop()
-            except Exception as e:
-                st.error(f"Error initializing Google services: {str(e)}")
-                st.error(traceback.format_exc())
-                st.stop()
-    
     # Authentication flow
     if not st.session_state.authenticated:
         render_login_ui()
@@ -1100,13 +1076,16 @@ def main():
         st.markdown("### 🔧 System Status")
         
         # Check Google services
-        try:
-            service = GoogleServiceManager.get_sheets_service()
-            # Quick test to verify service is working
-            service.spreadsheets().get(spreadsheetId=AppConfig.SHEET_ID).execute()
+        if 'google_initialized' in st.session_state and st.session_state.google_initialized:
             st.success("✅ Google Services Connected")
-        except:
-            st.error("❌ Google Services Disconnected")
+        else:
+            st.error("❌ Google Services Not Initialized")
+            if st.button("🔄 Reinitialize Google Services", use_container_width=True):
+                if initialize_google_services():
+                    st.success("✅ Google services reinitialized!")
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to initialize Google services")
         
         # Data status
         if st.session_state.get('data_loaded'):
@@ -1122,24 +1101,70 @@ def main():
             st.session_state.role = None
             st.session_state.user_info = None
             st.session_state.data_loaded = False
+            if 'google_initialized' in st.session_state:
+                del st.session_state.google_initialized
+            if 'SHEETS_SERVICE' in st.session_state:
+                del st.session_state.SHEETS_SERVICE
+            if 'DRIVE_SERVICE' in st.session_state:
+                del st.session_state.DRIVE_SERVICE
             st.rerun()
     
     # Main content
     try:
+        # Initialize Google services if not already done
+        if 'google_initialized' not in st.session_state or not st.session_state.google_initialized:
+            with st.spinner("🔄 Initializing Google services..."):
+                if not initialize_google_services():
+                    st.error("""
+                    ❌ Failed to initialize Google services. Please check:
+                    
+                    1. Your secrets.toml file contains correct credentials
+                    2. The service account has access to the Google Sheet
+                    3. The Google Sheet ID is correct
+                    
+                    **Google Sheet ID:** `1iIBoWSZSvV-SF9u2Cxi-_fbYgg06-XI32UgF1ZJIxh4`
+                    **Service Account:** `taskmanager@taks-manager-480110.iam.gserviceaccount.com`
+                    """)
+                    return
+        
         # Load data if needed
         if not st.session_state.get('data_loaded'):
             with st.spinner("📥 Loading tasks from Google Sheets..."):
                 try:
                     df = DataManager.fetch_sheet_data(
-                        GoogleServiceManager.get_sheets_service(),
                         AppConfig.SHEET_ID,
                         "Task Log!A:K"
                     )
                     st.session_state.df = df
                     st.session_state.data_loaded = True
-                    st.success(f"✅ Loaded {len(df)} tasks")
+                    st.success(f"✅ Loaded {len(df)} tasks from Google Sheets")
                 except Exception as e:
                     st.error(f"❌ Failed to load data: {str(e)}")
+                    
+                    # Show troubleshooting help
+                    with st.expander("🛠️ Troubleshooting Help"):
+                        st.markdown("""
+                        ### Common Issues & Solutions:
+                        
+                        1. **Google Sheet Permissions**
+                           - Ensure the Google Sheet is shared with: `taskmanager@taks-manager-480110.iam.gserviceaccount.com`
+                           - Grant **Editor** access to the service account
+                        
+                        2. **Secrets Configuration**
+                           - Verify `secrets.toml` has correct credentials
+                           - Check that the private key is properly formatted
+                        
+                        3. **Google Sheet ID**
+                           - Current Sheet ID: `1iIBoWSZSvV-SF9u2Cxi-_fbYgg06-XI32UgF1ZJIxh4`
+                           - Ensure this matches your actual Google Sheet
+                        
+                        4. **Service Account Status**
+                           - Verify the service account is active in Google Cloud Console
+                        
+                        **Error Details:**
+                        """)
+                        st.code(str(e))
+                    
                     return
         
         # Render appropriate dashboard
@@ -1149,8 +1174,9 @@ def main():
             user_dashboard(st.session_state.df, st.session_state.role)
             
     except Exception as e:
-        st.error(f"Application error: {str(e)}")
-        st.error(traceback.format_exc())
+        st.error(f"❌ Application error: {str(e)}")
+        with st.expander("📋 Error Details"):
+            st.code(traceback.format_exc())
 
 if __name__ == "__main__":
     main()
