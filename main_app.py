@@ -31,7 +31,7 @@ C21_GREEN_SUCCESS = "#4CAF50"
 class AppConfig:
     """Enterprise application configuration"""
     APP_NAME = "Task Manager - The Burtch Team"
-    VERSION = "2.0.1"
+    VERSION = "2.0.2"
     SHEET_ID = "1iIBoWSZSvV-SF9u2Cxi-_fbYgg06-XI32UgF1ZJIxh4"
     DRIVE_FOLDER_ID = ""  # Set your Drive folder ID here
     SESSION_TIMEOUT_MINUTES = 30
@@ -1082,19 +1082,49 @@ def manager_dashboard(df: pd.DataFrame) -> None:
             )
             fig1.update_traces(textposition='inside', textinfo='percent+label')
             st.plotly_chart(fig1, use_container_width=True)
+        else:
+            st.info("No tasks available for status distribution.")
     
     with col2:
-        # Priority distribution
-        priority_counts = df['Priority'].value_counts().sort_index()
-        if not priority_counts.empty:
+        # Priority distribution - FIXED VERSION
+        # Create a DataFrame with all priority levels
+        priority_data = {'Priority': ['High', 'Medium', 'Low'], 'Count': [0, 0, 0]}
+        
+        # Count tasks by priority
+        if not df.empty:
+            # Ensure we have numeric priorities
+            df['Priority'] = pd.to_numeric(df['Priority'], errors='coerce').fillna(3).astype(int)
+            
+            # Count each priority level
+            for priority in [1, 2, 3]:
+                count = len(df[df['Priority'] == priority])
+                if priority == 1:
+                    priority_data['Count'][0] = count
+                elif priority == 2:
+                    priority_data['Count'][1] = count
+                elif priority == 3:
+                    priority_data['Count'][2] = count
+        
+        # Create the bar chart
+        priority_df = pd.DataFrame(priority_data)
+        
+        if not priority_df.empty and priority_df['Count'].sum() > 0:
             fig2 = px.bar(
-                x=['High', 'Medium', 'Low'],
-                y=priority_counts.values,
+                priority_df,
+                x='Priority',
+                y='Count',
                 title="Task Priority Distribution",
-                color=['#D32F2F', '#FF9800', '#4CAF50'],
-                labels={'x': 'Priority', 'y': 'Count'}
+                color='Priority',
+                color_discrete_map={
+                    'High': '#D32F2F',
+                    'Medium': '#FF9800',
+                    'Low': '#4CAF50'
+                },
+                labels={'Count': 'Number of Tasks'}
             )
             st.plotly_chart(fig2, use_container_width=True)
+        else:
+            st.info("No tasks available for priority distribution.")
     
     st.markdown("---")
     
@@ -1182,37 +1212,42 @@ def manager_dashboard(df: pd.DataFrame) -> None:
         st.subheader("Performance Trends")
         
         # Completion rate over time
-        df['Created Date'] = pd.to_datetime(df['Created At']).dt.date
-        df['Completed'] = df['Status'] == 'Completed'
-        
-        # Weekly completion rate
-        df['Week'] = pd.to_datetime(df['Created At']).dt.to_period('W').apply(lambda r: r.start_time)
-        weekly_completion = df.groupby('Week')['Completed'].mean().reset_index()
-        
-        if not weekly_completion.empty:
-            fig3 = px.line(
-                weekly_completion,
-                x='Week',
-                y='Completed',
-                title="Weekly Completion Rate",
-                markers=True,
-                line_shape='spline'
-            )
-            fig3.update_yaxes(tickformat=".0%", title="Completion Rate")
-            fig3.update_xaxes(title="Week")
-            st.plotly_chart(fig3, use_container_width=True)
-        
-        # Task load over time
-        daily_tasks = df.groupby('Created Date').size().reset_index(name='Task Count')
-        if not daily_tasks.empty:
-            fig4 = px.bar(
-                daily_tasks,
-                x='Created Date',
-                y='Task Count',
-                title="Daily Task Creation",
-                color_discrete_sequence=[C21_GOLD]
-            )
-            st.plotly_chart(fig4, use_container_width=True)
+        if not df.empty:
+            df['Created Date'] = pd.to_datetime(df['Created At']).dt.date
+            df['Completed'] = df['Status'] == 'Completed'
+            
+            # Weekly completion rate
+            df['Week'] = pd.to_datetime(df['Created At']).dt.to_period('W').apply(lambda r: r.start_time)
+            weekly_completion = df.groupby('Week')['Completed'].mean().reset_index()
+            
+            if not weekly_completion.empty:
+                fig3 = px.line(
+                    weekly_completion,
+                    x='Week',
+                    y='Completed',
+                    title="Weekly Completion Rate",
+                    markers=True,
+                    line_shape='spline'
+                )
+                fig3.update_yaxes(tickformat=".0%", title="Completion Rate")
+                fig3.update_xaxes(title="Week")
+                st.plotly_chart(fig3, use_container_width=True)
+            else:
+                st.info("No completion data available for trend analysis.")
+            
+            # Task load over time
+            daily_tasks = df.groupby('Created Date').size().reset_index(name='Task Count')
+            if not daily_tasks.empty:
+                fig4 = px.bar(
+                    daily_tasks,
+                    x='Created Date',
+                    y='Task Count',
+                    title="Daily Task Creation",
+                    color_discrete_sequence=[C21_GOLD]
+                )
+                st.plotly_chart(fig4, use_container_width=True)
+        else:
+            st.info("No data available for trend analysis.")
 
 def user_dashboard(df: pd.DataFrame, role: str) -> None:
     """User dashboard view for Luke Wise"""
