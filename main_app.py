@@ -31,7 +31,7 @@ C21_GREEN_SUCCESS = "#4CAF50"
 class AppConfig:
     """Enterprise application configuration"""
     APP_NAME = "Task Manager - The Burtch Team"
-    VERSION = "2.0.0"
+    VERSION = "2.0.1"
     SHEET_ID = "1iIBoWSZSvV-SF9u2Cxi-_fbYgg06-XI32UgF1ZJIxh4"
     DRIVE_FOLDER_ID = ""  # Set your Drive folder ID here
     SESSION_TIMEOUT_MINUTES = 30
@@ -43,8 +43,7 @@ class SecurityConfig:
     # Display names for login screen
     USER_DISPLAY_NAMES = {
         "Burtch": "The Burtch Team",
-        "Luke": "Luke Associate",
-        "Admin": "System Administrator"
+        "Luke": "Luke Wise"
     }
     
     USER_CREDENTIALS = {
@@ -57,14 +56,8 @@ class SecurityConfig:
         "Luke": {
             "password_hash": hashlib.sha256("luke29430".encode()).hexdigest(),
             "role": "Luke",
-            "full_name": "Luke Associate",
-            "display_name": "Luke Associate"
-        },
-        "Admin": {
-            "password_hash": hashlib.sha256("admin_secure_password".encode()).hexdigest(),
-            "role": "Admin",
-            "full_name": "System Administrator",
-            "display_name": "System Administrator"
+            "full_name": "Luke Wise",
+            "display_name": "Luke Wise"
         }
     }
     
@@ -282,15 +275,14 @@ def inject_custom_css():
 # --- 3. DATA MODELS & CONSTANTS ---
 STATUS_LEVELS = ['Assigned', 'In Progress', 'Pending', 'Completed', 'Archived']
 PRIORITY_LEVELS = [1, 2, 3]  # 1=High, 2=Medium, 3=Low
-ROLES = ["Burtch", "Luke", "Admin"]
-DISPLAY_ROLES = ["The Burtch Team", "Luke Associate", "System Administrator"]
+ROLES = ["Burtch", "Luke"]
+DISPLAY_ROLES = ["The Burtch Team", "Luke Wise"]
 ROLE_MAPPING = {
     "The Burtch Team": "Burtch",
-    "Luke Associate": "Luke",
-    "System Administrator": "Admin"
+    "Luke Wise": "Luke"
 }
 COLUMNS = ['ID', 'Title', 'Assigned To', 'Due Date', 'Status', 'Priority', 'Description', 
-           'Google Drive Link', 'Created By', 'Last Modified', 'Created At']
+           'Comments', 'Google Drive Link', 'Created By', 'Last Modified', 'Created At']
 
 # --- 4. ENTERPRISE ERROR HANDLING ---
 class TaskManagerError(Exception):
@@ -438,7 +430,7 @@ class DataManager:
             # Get data from Task Log sheet
             result = service.spreadsheets().values().get(
                 spreadsheetId=sheet_id, 
-                range='Task Log!A1:K1'
+                range='Task Log!A1:L1'
             ).execute()
             
             values = result.get('values', [])
@@ -549,6 +541,20 @@ class DataManager:
             headers = values[0] if len(values) > 0 else COLUMNS
             data = values[1:] if len(values) > 1 else []
             
+            # Handle legacy data without Comments column
+            if len(headers) == 11:  # Old format without Comments
+                headers = headers[:7] + ['Comments'] + headers[7:]
+                for row in data:
+                    if len(row) == 11:
+                        row.insert(7, '')  # Add empty Comments column
+            
+            # Ensure we have the right number of columns
+            while len(headers) < len(COLUMNS):
+                headers.append('')
+            for row in data:
+                while len(row) < len(COLUMNS):
+                    row.append('')
+            
             df = pd.DataFrame(data, columns=headers)
             
             # Ensure all required columns exist
@@ -569,7 +575,8 @@ class DataManager:
                 df['Last Modified'] = current_time
             
             # Remove duplicate rows to prevent form key conflicts
-            df = df.drop_duplicates(subset='ID', keep='last')
+            if 'ID' in df.columns:
+                df = df.drop_duplicates(subset='ID', keep='last')
             
             return df[COLUMNS]
             
@@ -588,7 +595,7 @@ class DataManager:
         
         service = st.session_state.SHEETS_SERVICE
         # Convert to 1-based indexing for Sheets API
-        update_range = f"A{row_index + 2}:K{row_index + 2}"
+        update_range = f"A{row_index + 2}:L{row_index + 2}"
         
         body = {'values': [updated_data]}
         
@@ -740,6 +747,18 @@ def render_task_card(task: pd.Series, current_user_role: str, card_index: int) -
     created_by_display = task['Created By']
     if task['Created By'] == "Burtch":
         created_by_display = "The Burtch Team"
+    elif task['Created By'] == "Luke":
+        created_by_display = "Luke Wise"
+    
+    # Get comments if available
+    comments = task.get('Comments', '')
+    comments_display = ""
+    if comments and pd.notna(comments) and str(comments).strip():
+        comments_display = f"""
+        <div style='margin: 10px 0; padding: 10px; background-color: #F5F5F5; border-radius: 5px; border-left: 3px solid {C21_GOLD};'>
+            <p style='margin: 0; font-size: 0.9em; color: {C21_DARK_GREY};'><strong>💬 Comments:</strong> {comments}</p>
+        </div>
+        """
     
     st.markdown(f"""
         <div class='task-card'>
@@ -761,6 +780,8 @@ def render_task_card(task: pd.Series, current_user_role: str, card_index: int) -
                 </p>
             </div>
             
+            {comments_display}
+            
             <div style='display: flex; justify-content: space-between; align-items: center; margin-top: 15px;'>
                 <div>
                     <span style='{due_style}; font-size: 0.9em;'>{due_text}</span>
@@ -772,7 +793,7 @@ def render_task_card(task: pd.Series, current_user_role: str, card_index: int) -
                 </div>
             </div>
             
-            {f"<div style='margin-top: 10px;'><a href='{task['Google Drive Link']}' target='_blank' style='color: {C21_BLUE_INFO}; text-decoration: none;'>📁 Open Drive Folder</a></div>" if task.get('Google Drive Link') and pd.notna(task['Google Drive Link']) else ''}
+            {f"<div style='margin-top: 10px;'><a href='{task['Google Drive Link']}' target='_blank' style='color: {C21_BLUE_INFO}; text-decoration: none;'>📁 Open Drive Folder</a></div>" if task.get('Google Drive Link') and pd.notna(task['Google Drive Link']) and str(task['Google Drive Link']).strip() else ''}
             
             <div style='margin-top: 10px; font-size: 0.8em; color: #9E9E9E;'>
                 Created by {created_by_display} | Last modified: {task['Last Modified']}
@@ -780,8 +801,8 @@ def render_task_card(task: pd.Series, current_user_role: str, card_index: int) -
         </div>
     """, unsafe_allow_html=True)
     
-    # Update form (only for assigned user or admin)
-    if current_user_role == task['Assigned To'] or current_user_role == "Admin":
+    # Update form (only for assigned user or Burtch)
+    if current_user_role == task['Assigned To'] or current_user_role == "Burtch":
         with st.expander(f"🔄 Update Task #{task['ID']}", expanded=False):
             # Create unique form key using task ID AND card index to prevent duplicates
             form_key = f"update_form_{task['ID']}_{card_index}_{int(time.time())}"
@@ -799,6 +820,16 @@ def render_task_card(task: pd.Series, current_user_role: str, card_index: int) -
                     PRIORITY_LEVELS,
                     index=task['Priority'] - 1 if task['Priority'] in PRIORITY_LEVELS else 2,
                     key=f"priority_{task['ID']}_{card_index}"
+                )
+                
+                # Comments field for updates
+                current_comments = task.get('Comments', '')
+                new_comments = st.text_area(
+                    "Add/Update Comments",
+                    value=current_comments if pd.notna(current_comments) else '',
+                    height=100,
+                    key=f"comments_{task['ID']}_{card_index}",
+                    help="Add comments or updates about this task"
                 )
                 
                 col1, col2 = st.columns(2)
@@ -820,6 +851,7 @@ def render_task_card(task: pd.Series, current_user_role: str, card_index: int) -
                         # Update dataframe
                         df.loc[row_index, 'Status'] = new_status
                         df.loc[row_index, 'Priority'] = new_priority
+                        df.loc[row_index, 'Comments'] = new_comments
                         df.loc[row_index, 'Last Modified'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                         
                         # Update Google Sheet
@@ -853,39 +885,42 @@ def render_metrics(metrics: dict) -> None:
             """, unsafe_allow_html=True)
 
 # --- 8. VIEW CONTROLLERS ---
-def admin_dashboard(df: pd.DataFrame) -> None:
-    """Admin dashboard view"""
-    st.title("👑 Admin Dashboard")
+def manager_dashboard(df: pd.DataFrame) -> None:
+    """Manager dashboard view for The Burtch Team"""
+    st.title("👑 Manager Dashboard - The Burtch Team")
     
     # Task creation section
-    with st.expander("➕ Create New Task", expanded=False):
+    with st.expander("➕ Create & Assign New Task", expanded=False):
         with st.form("create_task_form"):
             col1, col2 = st.columns(2)
             
             with col1:
-                task_title = st.text_input("Task Title", max_chars=200)
-                task_assigned = st.selectbox("Assign To", DISPLAY_ROLES)
+                task_title = st.text_input("Task Title *", max_chars=200, help="Enter a clear title for the task")
+                task_assigned = st.selectbox("Assign To *", ["Luke Wise"], help="Task will be assigned to Luke Wise")
                 task_due_date = st.date_input(
-                    "Due Date",
+                    "Due Date *",
                     min_value=datetime.date.today(),
-                    value=datetime.date.today() + datetime.timedelta(days=7)
+                    value=datetime.date.today() + datetime.timedelta(days=7),
+                    help="Set the deadline for this task"
                 )
             
             with col2:
                 task_priority = st.selectbox(
-                    "Priority Level",
+                    "Priority Level *",
                     options=PRIORITY_LEVELS,
-                    format_func=lambda x: f"{x} - {'High' if x == 1 else 'Medium' if x == 2 else 'Low'}"
+                    format_func=lambda x: f"{x} - {'High' if x == 1 else 'Medium' if x == 2 else 'Low'}",
+                    help="Set task priority"
                 )
-                task_desc = st.text_area("Description", height=100)
+                task_desc = st.text_area("Description *", height=100, help="Provide detailed description of the task")
                 
                 # Drive folder option
-                create_drive_folder = st.checkbox("Create Google Drive Folder", value=True)
+                create_drive_folder = st.checkbox("Create Google Drive Folder", value=True, 
+                                                 help="Create a dedicated folder for this task in Google Drive")
             
             col_a, col_b = st.columns(2)
             with col_a:
                 submitted = st.form_submit_button(
-                    "🚀 Create Task",
+                    "🚀 Create & Assign Task",
                     type="primary",
                     use_container_width=True
                 )
@@ -893,55 +928,130 @@ def admin_dashboard(df: pd.DataFrame) -> None:
                 if st.form_submit_button("🗑️ Clear Form", use_container_width=True):
                     st.rerun()
             
-            if submitted and task_title:
-                try:
-                    # Generate unique ID
-                    new_id = int(time.time() * 1000) % 1000000
-                    
-                    # Map display role to internal role
-                    internal_role = ROLE_MAPPING.get(task_assigned, task_assigned)
-                    
-                    # Prepare new row
-                    new_row = [
-                        new_id,
-                        task_title,
-                        internal_role,
-                        task_due_date.strftime('%Y-%m-%d'),
-                        'Assigned',
-                        task_priority,
-                        task_desc,
-                        '',  # Drive link placeholder
-                        st.session_state.role,
-                        datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                        datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    ]
-                    
-                    # Create Drive folder if requested
-                    if create_drive_folder and AppConfig.DRIVE_FOLDER_ID:
-                        folder_name = f"Task_{new_id}_{task_title[:30]}"
-                        drive_link = DataManager.create_drive_folder(
-                            folder_name,
-                            AppConfig.DRIVE_FOLDER_ID
+            if submitted:
+                if task_title and task_desc:
+                    try:
+                        # Generate unique ID
+                        new_id = int(time.time() * 1000) % 1000000
+                        
+                        # Prepare new row
+                        new_row = [
+                            new_id,
+                            task_title,
+                            "Luke",  # Always assign to Luke
+                            task_due_date.strftime('%Y-%m-%d'),
+                            'Assigned',
+                            task_priority,
+                            task_desc,
+                            '',  # Comments placeholder
+                            '',  # Drive link placeholder
+                            st.session_state.role,
+                            datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                            datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        ]
+                        
+                        # Create Drive folder if requested
+                        if create_drive_folder and AppConfig.DRIVE_FOLDER_ID:
+                            folder_name = f"Task_{new_id}_{task_title[:30]}".replace(" ", "_")
+                            drive_link = DataManager.create_drive_folder(
+                                folder_name,
+                                AppConfig.DRIVE_FOLDER_ID
+                            )
+                            new_row[8] = drive_link
+                        
+                        # Append to Google Sheet
+                        DataManager.append_sheet_row(
+                            AppConfig.SHEET_ID,
+                            "Task Log!A:L",
+                            new_row
                         )
-                        new_row[7] = drive_link
+                        
+                        st.success(f"✅ Task '{task_title}' created and assigned to Luke Wise!")
+                        st.session_state.data_loaded = False
+                        st.cache_data.clear()
+                        time.sleep(1.5)
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error creating task: {str(e)}")
+                else:
+                    st.warning("⚠️ Please fill in all required fields (marked with *)")
+    
+    st.markdown("---")
+    
+    # Report Generation Section
+    with st.expander("📊 Generate Task Reports", expanded=False):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            report_start_date = st.date_input(
+                "Start Date",
+                value=datetime.date.today() - datetime.timedelta(days=30),
+                help="Select start date for report period"
+            )
+        
+        with col2:
+            report_end_date = st.date_input(
+                "End Date",
+                value=datetime.date.today(),
+                help="Select end date for report period"
+            )
+        
+        report_type = st.selectbox(
+            "Report Type",
+            ["Completed Tasks", "All Tasks", "High Priority Tasks", "Overdue Tasks"],
+            help="Select the type of report to generate"
+        )
+        
+        if st.button("📥 Generate Report", type="primary", use_container_width=True):
+            try:
+                # Convert dates for comparison
+                start_date = pd.to_datetime(report_start_date)
+                end_date = pd.to_datetime(report_end_date)
+                
+                # Filter tasks based on creation date
+                df['Created Date'] = pd.to_datetime(df['Created At']).dt.date
+                filtered_df = df[
+                    (pd.to_datetime(df['Created Date']) >= start_date) &
+                    (pd.to_datetime(df['Created Date']) <= end_date)
+                ].copy()
+                
+                # Apply additional filters based on report type
+                if report_type == "Completed Tasks":
+                    filtered_df = filtered_df[filtered_df['Status'] == 'Completed']
+                elif report_type == "High Priority Tasks":
+                    filtered_df = filtered_df[filtered_df['Priority'] == 1]
+                elif report_type == "Overdue Tasks":
+                    filtered_df = filtered_df[
+                        (pd.to_datetime(filtered_df['Due Date']).dt.date < datetime.date.today()) &
+                        (~filtered_df['Status'].isin(['Completed', 'Archived']))
+                    ]
+                
+                if not filtered_df.empty:
+                    # Prepare data for download
+                    report_data = filtered_df.copy()
+                    report_data['Due Date'] = report_data['Due Date'].dt.strftime('%Y-%m-%d')
                     
-                    # Append to Google Sheet
-                    DataManager.append_sheet_row(
-                        AppConfig.SHEET_ID,
-                        "Task Log!A:K",
-                        new_row
+                    # Convert to CSV
+                    csv = report_data.to_csv(index=False)
+                    
+                    # Download button
+                    st.download_button(
+                        label="💾 Download Report as CSV",
+                        data=csv,
+                        file_name=f"task_report_{report_start_date}_{report_end_date}_{report_type.replace(' ', '_')}.csv",
+                        mime="text/csv",
+                        use_container_width=True
                     )
                     
-                    st.success(f"✅ Task '{task_title}' created successfully!")
-                    st.session_state.data_loaded = False
-                    st.cache_data.clear()
-                    time.sleep(1.5)
-                    st.rerun()
+                    # Display preview
+                    st.subheader("📋 Report Preview")
+                    st.dataframe(report_data, use_container_width=True)
+                else:
+                    st.info(f"No tasks found for the selected period and report type.")
                     
-                except Exception as e:
-                    st.error(f"❌ Error creating task: {str(e)}")
-            elif submitted:
-                st.warning("⚠️ Please enter a task title.")
+            except Exception as e:
+                st.error(f"❌ Error generating report: {str(e)}")
     
     st.markdown("---")
     
@@ -989,7 +1099,7 @@ def admin_dashboard(df: pd.DataFrame) -> None:
     st.markdown("---")
     
     # Task management tabs
-    tab1, tab2, tab3 = st.tabs(["📋 All Tasks", "👥 User Tasks", "📊 Analytics"])
+    tab1, tab2, tab3 = st.tabs(["📋 All Tasks", "👥 Luke's Tasks", "📈 Trends"])
     
     with tab1:
         st.subheader("All Tasks Overview")
@@ -1009,16 +1119,18 @@ def admin_dashboard(df: pd.DataFrame) -> None:
                 default=[1, 2, 3]
             )
         with col3:
-            # Convert internal roles to display names for filter
-            assigned_options = [SecurityConfig.USER_DISPLAY_NAMES.get(role, role) for role in ROLES]
             assigned_filter = st.multiselect(
                 "Filter by Assignee",
-                assigned_options,
-                default=assigned_options
+                ["Luke Wise", "The Burtch Team"],
+                default=["Luke Wise"]
             )
         
-        # Apply filters - convert display names back to internal roles
-        internal_roles = [ROLE_MAPPING.get(display, display) for display in assigned_filter]
+        # Apply filters - convert display names to internal roles
+        internal_roles = []
+        if "Luke Wise" in assigned_filter:
+            internal_roles.append("Luke")
+        if "The Burtch Team" in assigned_filter:
+            internal_roles.append("Burtch")
         
         filtered_df = df[
             df['Status'].isin(status_filter) &
@@ -1026,52 +1138,84 @@ def admin_dashboard(df: pd.DataFrame) -> None:
             df['Assigned To'].isin(internal_roles)
         ].sort_values(['Priority', 'Due Date'], ascending=[True, True])
         
-        # Display table
-        st.dataframe(
-            filtered_df.style.apply(
-                lambda x: ['background: #FFEBEE' if x['Priority'] == 1 else 
-                          'background: #FFF3E0' if x['Priority'] == 2 else 
-                          'background: #E8F5E9' for _ in x],
-                axis=1
-            ),
-            use_container_width=True,
-            height=400
-        )
+        if not filtered_df.empty:
+            # Display table
+            st.dataframe(
+                filtered_df.style.apply(
+                    lambda x: ['background: #FFEBEE' if x['Priority'] == 1 else 
+                              'background: #FFF3E0' if x['Priority'] == 2 else 
+                              'background: #E8F5E9' for _ in x],
+                    axis=1
+                ),
+                use_container_width=True,
+                height=400
+            )
+        else:
+            st.info("No tasks match the selected filters.")
     
     with tab2:
-        st.subheader("Tasks by User")
-        for role in ROLES:
-            display_name = SecurityConfig.USER_DISPLAY_NAMES.get(role, role)
-            with st.expander(f"👤 {display_name}'s Tasks"):
-                user_tasks = df[df['Assigned To'] == role]
-                if not user_tasks.empty:
-                    for idx, (_, task) in enumerate(user_tasks.iterrows()):
-                        render_task_card(task, "Admin", idx)
-                else:
-                    st.info(f"No tasks assigned to {display_name}")
+        st.subheader("Luke Wise's Tasks")
+        luke_tasks = df[df['Assigned To'] == "Luke"]
+        if not luke_tasks.empty:
+            # Sort by priority and due date
+            luke_tasks = luke_tasks.sort_values(['Priority', 'Due Date'], ascending=[True, True])
+            
+            # Display upcoming tasks (not completed/archived)
+            upcoming_tasks = luke_tasks[~luke_tasks['Status'].isin(['Completed', 'Archived'])]
+            if not upcoming_tasks.empty:
+                st.markdown(f"### 📅 Upcoming Tasks ({len(upcoming_tasks)})")
+                for idx, (_, task) in enumerate(upcoming_tasks.iterrows()):
+                    render_task_card(task, "Burtch", idx)
+            else:
+                st.success("🎉 All of Luke's tasks are completed or archived!")
+            
+            # Display completed tasks
+            completed_tasks = luke_tasks[luke_tasks['Status'] == 'Completed']
+            if not completed_tasks.empty:
+                with st.expander(f"✅ Completed Tasks ({len(completed_tasks)})", expanded=False):
+                    for idx, (_, task) in enumerate(completed_tasks.iterrows()):
+                        render_task_card(task, "Burtch", idx)
+        else:
+            st.info("No tasks assigned to Luke Wise.")
     
     with tab3:
-        st.subheader("Advanced Analytics")
+        st.subheader("Performance Trends")
         
         # Completion rate over time
         df['Created Date'] = pd.to_datetime(df['Created At']).dt.date
         df['Completed'] = df['Status'] == 'Completed'
         
-        completion_by_date = df.groupby('Created Date')['Completed'].mean().reset_index()
+        # Weekly completion rate
+        df['Week'] = pd.to_datetime(df['Created At']).dt.to_period('W').apply(lambda r: r.start_time)
+        weekly_completion = df.groupby('Week')['Completed'].mean().reset_index()
         
-        if not completion_by_date.empty:
+        if not weekly_completion.empty:
             fig3 = px.line(
-                completion_by_date,
-                x='Created Date',
+                weekly_completion,
+                x='Week',
                 y='Completed',
-                title="Completion Rate Over Time",
-                markers=True
+                title="Weekly Completion Rate",
+                markers=True,
+                line_shape='spline'
             )
             fig3.update_yaxes(tickformat=".0%", title="Completion Rate")
+            fig3.update_xaxes(title="Week")
             st.plotly_chart(fig3, use_container_width=True)
+        
+        # Task load over time
+        daily_tasks = df.groupby('Created Date').size().reset_index(name='Task Count')
+        if not daily_tasks.empty:
+            fig4 = px.bar(
+                daily_tasks,
+                x='Created Date',
+                y='Task Count',
+                title="Daily Task Creation",
+                color_discrete_sequence=[C21_GOLD]
+            )
+            st.plotly_chart(fig4, use_container_width=True)
 
 def user_dashboard(df: pd.DataFrame, role: str) -> None:
-    """User dashboard view"""
+    """User dashboard view for Luke Wise"""
     display_name = SecurityConfig.USER_DISPLAY_NAMES.get(role, role)
     st.title(f"👋 Welcome, {display_name}")
     
@@ -1094,60 +1238,121 @@ def user_dashboard(df: pd.DataFrame, role: str) -> None:
     
     st.markdown("---")
     
-    # Task filtering
-    col1, col2 = st.columns(2)
-    with col1:
-        status_filter = st.multiselect(
-            "Filter by Status",
-            STATUS_LEVELS,
-            default=['Assigned', 'In Progress', 'Pending'],
-            key=f"user_status_filter_{role}"
-        )
-    with col2:
-        priority_filter = st.multiselect(
-            "Filter by Priority",
-            PRIORITY_LEVELS,
-            default=[1, 2, 3],
-            key=f"user_priority_filter_{role}"
-        )
+    # Upcoming tasks section (not completed/archived)
+    st.subheader("📅 Upcoming & Active Tasks")
     
-    # Apply filters
-    filtered_tasks = user_tasks[
-        user_tasks['Status'].isin(status_filter) &
-        user_tasks['Priority'].isin(priority_filter)
-    ].sort_values(['Priority', 'Due Date'], ascending=[True, True])
-    
-    if filtered_tasks.empty:
-        st.success("🎉 All caught up! No tasks match your filters.")
-        
-        # Show completed tasks if no active tasks
-        completed_tasks = user_tasks[user_tasks['Status'] == 'Completed']
-        if not completed_tasks.empty:
-            with st.expander("📚 View Completed Tasks"):
-                for idx, (_, task) in enumerate(completed_tasks.iterrows()):
-                    render_task_card(task, role, idx)
+    if active_tasks.empty:
+        st.success("🎉 All caught up! No active tasks.")
     else:
-        # Display tasks with unique indices
-        for idx, (_, task) in enumerate(filtered_tasks.iterrows()):
-            render_task_card(task, role, idx)
+        # Sort by priority and due date
+        active_tasks = active_tasks.sort_values(['Priority', 'Due Date'], ascending=[True, True])
         
-        # Quick stats
-        st.markdown("---")
-        col1, col2, col3 = st.columns(3)
+        # Display upcoming tasks this week
+        this_week_tasks = active_tasks[
+            (pd.to_datetime(active_tasks['Due Date']).dt.date >= datetime.date.today()) &
+            (pd.to_datetime(active_tasks['Due Date']).dt.date <= datetime.date.today() + datetime.timedelta(days=7))
+        ]
         
-        with col1:
-            high_priority = len(filtered_tasks[filtered_tasks['Priority'] == 1])
-            st.metric("High Priority Tasks", high_priority)
+        if not this_week_tasks.empty:
+            st.markdown(f"### This Week ({len(this_week_tasks)} tasks)")
+            for idx, (_, task) in enumerate(this_week_tasks.iterrows()):
+                render_task_card(task, role, idx)
         
-        with col2:
-            overdue = len(filtered_tasks[
-                pd.to_datetime(filtered_tasks['Due Date']).dt.date < datetime.date.today()
-            ])
-            st.metric("Overdue Tasks", overdue, delta_color="inverse")
+        # Display other upcoming tasks
+        other_tasks = active_tasks[
+            (pd.to_datetime(active_tasks['Due Date']).dt.date > datetime.date.today() + datetime.timedelta(days=7)) |
+            (pd.isna(active_tasks['Due Date']))
+        ]
         
-        with col3:
-            completion_rate = len(user_tasks[user_tasks['Status'] == 'Completed']) / len(user_tasks) * 100 if len(user_tasks) > 0 else 0
-            st.metric("Completion Rate", f"{completion_rate:.1f}%")
+        if not other_tasks.empty:
+            with st.expander(f"Future Tasks ({len(other_tasks)})", expanded=False):
+                for idx, (_, task) in enumerate(other_tasks.iterrows()):
+                    render_task_card(task, role, idx)
+        
+        # Display overdue tasks
+        overdue_tasks = active_tasks[
+            pd.to_datetime(active_tasks['Due Date']).dt.date < datetime.date.today()
+        ]
+        
+        if not overdue_tasks.empty:
+            st.markdown("---")
+            st.markdown(f"### ⚠️ Overdue Tasks ({len(overdue_tasks)})")
+            for idx, (_, task) in enumerate(overdue_tasks.iterrows()):
+                render_task_card(task, role, idx)
+    
+    st.markdown("---")
+    
+    # Completed tasks section
+    completed_tasks = user_tasks[user_tasks['Status'] == 'Completed']
+    if not completed_tasks.empty:
+        with st.expander(f"📚 Completed Tasks ({len(completed_tasks)})", expanded=False):
+            # Sort by completion date (last modified)
+            completed_tasks = completed_tasks.sort_values('Last Modified', ascending=False)
+            for idx, (_, task) in enumerate(completed_tasks.iterrows()):
+                render_task_card(task, role, idx)
+    
+    # Quick update section
+    st.markdown("---")
+    st.subheader("⚡ Quick Task Update")
+    
+    if not active_tasks.empty:
+        # Simple form for quick status updates
+        with st.form("quick_update_form"):
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                task_to_update = st.selectbox(
+                    "Select Task",
+                    active_tasks.apply(lambda x: f"#{x['ID']} - {x['Title']}", axis=1).tolist(),
+                    help="Select a task to update"
+                )
+            
+            with col2:
+                new_status = st.selectbox(
+                    "Update Status",
+                    ['In Progress', 'Pending', 'Completed'],
+                    help="Update task status"
+                )
+            
+            with col3:
+                quick_comment = st.text_input(
+                    "Quick Comment",
+                    help="Add a brief comment about the update"
+                )
+            
+            if st.form_submit_button("🚀 Quick Update", type="primary", use_container_width=True):
+                try:
+                    # Extract task ID from selection
+                    task_id = int(task_to_update.split("#")[1].split(" - ")[0])
+                    
+                    # Find and update task
+                    df = st.session_state.df
+                    row_index = df[df['ID'] == task_id].index[0]
+                    
+                    # Update dataframe
+                    df.loc[row_index, 'Status'] = new_status
+                    if quick_comment:
+                        current_comments = df.loc[row_index, 'Comments']
+                        new_comments = f"{current_comments}\n{datetime.datetime.now().strftime('%Y-%m-%d')}: {quick_comment}".strip()
+                        df.loc[row_index, 'Comments'] = new_comments
+                    df.loc[row_index, 'Last Modified'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    
+                    # Update Google Sheet
+                    updated_data = df.loc[row_index, COLUMNS].tolist()
+                    DataManager.update_sheet_row(
+                        AppConfig.SHEET_ID,
+                        row_index,
+                        updated_data
+                    )
+                    
+                    st.success(f"✅ Task #{task_id} updated to '{new_status}'!")
+                    st.session_state.data_loaded = False
+                    st.cache_data.clear()
+                    time.sleep(1)
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"❌ Error updating task: {str(e)}")
 
 # --- 9. MAIN APPLICATION ---
 def main():
@@ -1188,6 +1393,8 @@ def main():
         st.session_state.data_loaded = False
     if 'login_time' not in st.session_state:
         st.session_state.login_time = None
+    if 'sheet_initialized' not in st.session_state:
+        st.session_state.sheet_initialized = False
     
     # Check session timeout
     if (st.session_state.authenticated and 
@@ -1223,7 +1430,7 @@ def main():
             <div style='padding: 10px; background: rgba(255,255,255,0.1); border-radius: 8px; margin-bottom: 20px;'>
                 <p style='margin: 0; color: {C21_WHITE}; font-size: 0.9em;'>👤 Logged in as:</p>
                 <p style='margin: 0; color: {C21_GOLD}; font-weight: bold;'>{user_display_name}</p>
-                <p style='margin: 0; color: {C21_WHITE}; font-size: 0.8em;'>{st.session_state.role} Role</p>
+                <p style='margin: 0; color: {C21_WHITE}; font-size: 0.8em;'>{'Manager' if st.session_state.role == 'Burtch' else 'Team Member'} Role</p>
             </div>
         """, unsafe_allow_html=True)
         
@@ -1232,13 +1439,13 @@ def main():
         
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("🔄 Refresh Data", use_container_width=True):
+            if st.button("🔄 Refresh Data", use_container_width=True, help="Reload data from Google Sheets"):
                 st.session_state.data_loaded = False
                 st.cache_data.clear()
                 st.rerun()
         
         with col2:
-            if st.button("📈 Dashboard", use_container_width=True):
+            if st.button("📈 Dashboard", use_container_width=True, help="Return to dashboard"):
                 st.rerun()
         
         # System status
@@ -1266,17 +1473,9 @@ def main():
         st.markdown("---")
         
         # Logout
-        if st.button("🚪 Logout", use_container_width=True):
-            st.session_state.authenticated = False
-            st.session_state.role = None
-            st.session_state.user_info = None
-            st.session_state.data_loaded = False
-            if 'google_initialized' in st.session_state:
-                del st.session_state.google_initialized
-            if 'SHEETS_SERVICE' in st.session_state:
-                del st.session_state.SHEETS_SERVICE
-            if 'DRIVE_SERVICE' in st.session_state:
-                del st.session_state.DRIVE_SERVICE
+        if st.button("🚪 Logout", use_container_width=True, type="secondary"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
             st.rerun()
     
     # Main content
@@ -1313,7 +1512,7 @@ def main():
                 try:
                     df = DataManager.fetch_sheet_data(
                         AppConfig.SHEET_ID,
-                        "Task Log!A:K"
+                        "Task Log!A:L"
                     )
                     st.session_state.df = df
                     st.session_state.data_loaded = True
@@ -1348,8 +1547,8 @@ def main():
                     return
         
         # Render appropriate dashboard
-        if st.session_state.role == "Admin":
-            admin_dashboard(st.session_state.df)
+        if st.session_state.role == "Burtch":
+            manager_dashboard(st.session_state.df)
         else:
             user_dashboard(st.session_state.df, st.session_state.role)
             
