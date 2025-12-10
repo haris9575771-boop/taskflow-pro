@@ -13,7 +13,6 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import traceback
 import base64
-from streamlit_option_menu import option_menu
 from datetime import timedelta
 
 # --- 1. ENTERPRISE BRANDING & CONFIGURATION ---
@@ -748,7 +747,7 @@ class NotificationManager:
     @staticmethod
     @st.cache_data(ttl=30)
     def fetch_notifications() -> pd.DataFrame:
-        """Fetches notifications with unread count."""
+        """Fetches notifications with enhanced datetime handling."""
         service = DataManager._get_service()
         try:
             result = service.spreadsheets().values().get(
@@ -757,16 +756,36 @@ class NotificationManager:
             values = result.get('values', [])
             
             if len(values) < 2:
-                return pd.DataFrame(columns=NOTIFICATION_COLUMNS)
+                df = pd.DataFrame(columns=NOTIFICATION_COLUMNS)
+                df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
+                return df
             
             df = pd.DataFrame(values[1:], columns=NOTIFICATION_COLUMNS)
-            df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
+            
+            # Safely convert Timestamp column to datetime
+            try:
+                df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
+            except Exception as e:
+                st.warning(f"Warning converting Timestamp to datetime: {e}")
+                # Create default datetime column if conversion fails
+                df['Timestamp'] = pd.NaT
+            
             df['Task ID'] = pd.to_numeric(df['Task ID'], errors='coerce').astype('Int64')
             
-            return df.sort_values('Timestamp', ascending=False).dropna(subset=['Timestamp'])
+            # Sort by Timestamp, handling NaT values
+            if not df.empty and 'Timestamp' in df.columns:
+                # Create a temporary column to handle NaT sorting
+                df['_temp_sort'] = df['Timestamp'].fillna(pd.Timestamp.min)
+                df = df.sort_values('_temp_sort', ascending=False)
+                df = df.drop('_temp_sort', axis=1)
+            
+            return df
+            
         except Exception as e:
             st.warning(f"Failed to fetch notifications: {e}")
-            return pd.DataFrame(columns=NOTIFICATION_COLUMNS)
+            df = pd.DataFrame(columns=NOTIFICATION_COLUMNS)
+            df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
+            return df
 
     @staticmethod
     def get_unread_count():
@@ -1433,19 +1452,32 @@ def render_task_actions(task, current_user):
                 st.rerun()
 
 def render_notification_center():
-    """Modern notification center."""
+    """Modern notification center with safe datetime handling."""
     notifications_df = NotificationManager.fetch_notifications()
-    unread_count = NotificationManager.get_unread_count()
     
     if notifications_df.empty:
         st.info("📭 No notifications yet")
         return
     
-    # Group by date
-    notifications_df['Date'] = notifications_df['Timestamp'].dt.date
-    grouped = notifications_df.groupby('Date')
+    # Safely handle datetime conversion
+    if 'Timestamp' in notifications_df.columns:
+        # Check if Timestamp is already datetime
+        if not pd.api.types.is_datetime64_any_dtype(notifications_df['Timestamp']):
+            try:
+                notifications_df['Timestamp'] = pd.to_datetime(notifications_df['Timestamp'], errors='coerce')
+            except Exception as e:
+                st.warning(f"Could not convert Timestamp to datetime: {e}")
+                notifications_df['Date'] = "Unknown"
+        else:
+            # Extract date safely
+            notifications_df['Date'] = notifications_df['Timestamp'].apply(
+                lambda x: x.date() if pd.notna(x) else "Unknown"
+            )
+    else:
+        notifications_df['Date'] = "Unknown"
     
-    for date, group in grouped:
+    # Group by date
+    for date, group in notifications_df.groupby('Date'):
         st.markdown(f"### 📅 {date}")
         
         for _, notif in group.iterrows():
@@ -1458,7 +1490,12 @@ def render_notification_center():
             }
             
             icon = action_icons.get(notif['Action'], "📢")
-            read_style = "opacity: 0.7;" if notif['Read'] == 'Yes' else ""
+            read_style = "opacity: 0.7;" if notif.get('Read') == 'Yes' else ""
+            timestamp_str = notif.get('Timestamp', '')
+            if pd.notna(timestamp_str) and hasattr(timestamp_str, 'strftime'):
+                time_str = timestamp_str.strftime('%H:%M')
+            else:
+                time_str = str(timestamp_str)
             
             with st.container():
                 st.markdown(f"""
@@ -1466,7 +1503,7 @@ def render_notification_center():
                     {read_style}
                     padding: 1rem;
                     margin: 0.5rem 0;
-                    background: {'rgba(76, 175, 80, 0.05)' if notif['Action'] == 'Task Completed' else 'white'};
+                    background: {'rgba(76, 175, 80, 0.05)' if notif.get('Action') == 'Task Completed' else 'white'};
                     border-radius: 12px;
                     border-left: 4px solid {C21_GOLD};
                     box-shadow: 0 2px 8px rgba(0,0,0,0.05);
@@ -1480,16 +1517,16 @@ def render_notification_center():
                                 align-items: center;
                                 margin-bottom: 4px;
                             ">
-                                <strong style="color: {C21_BLACK};">{notif['Action']}</strong>
+                                <strong style="color: {C21_BLACK};">{notif.get('Action', 'Unknown')}</strong>
                                 <small style="color: {C21_MEDIUM_GREY}">
-                                    {notif['Timestamp'].strftime('%H:%M')}
+                                    {time_str}
                                 </small>
                             </div>
                             <div style="color: {C21_DARK_GREY}; margin-bottom: 4px;">
-                                <strong>Task #{notif['Task ID']}:</strong> {notif['Title']}
+                                <strong>Task #{notif.get('Task ID', 'N/A')}:</strong> {notif.get('Title', 'Unknown')}
                             </div>
                             <div style="color: {C21_MEDIUM_GREY}; font-size: 0.9em;">
-                                👤 {notif['User']} • {notif['Details']}
+                                👤 {notif.get('User', 'Unknown')} • {notif.get('Details', 'No details')}
                             </div>
                         </div>
                     </div>
@@ -1499,7 +1536,7 @@ def render_notification_center():
 # --- 10. DASHBOARD VIEWS ---
 
 def manager_view(df):
-    """Enhanced manager dashboard."""
+    """Enhanced manager dashboard with fixed datetime handling."""
     current_user = "Burtch"
     
     # Header with stats
@@ -1768,14 +1805,19 @@ def manager_view(df):
             
             # Progress chart
             if not luke_completed.empty:
-                fig_completion = px.bar(
-                    luke_completed.groupby(luke_completed['Completed Date'].dt.to_period('M')).size().reset_index(name='Count'),
-                    x='Completed Date',
-                    y='Count',
-                    title="Monthly Completion Rate",
-                    color_discrete_sequence=[C21_GOLD]
-                )
-                st.plotly_chart(fig_completion, use_container_width=True)
+                # Ensure Completed Date is datetime
+                if pd.api.types.is_datetime64_any_dtype(luke_completed['Completed Date']):
+                    monthly_completed = luke_completed.groupby(luke_completed['Completed Date'].dt.to_period('M')).size().reset_index(name='Count')
+                    if not monthly_completed.empty:
+                        monthly_completed['Completed Date'] = monthly_completed['Completed Date'].astype(str)
+                        fig_completion = px.bar(
+                            monthly_completed,
+                            x='Completed Date',
+                            y='Count',
+                            title="Monthly Completion Rate",
+                            color_discrete_sequence=[C21_GOLD]
+                        )
+                        st.plotly_chart(fig_completion, use_container_width=True)
             
             # Hours chart
             if not luke_completed.empty:
@@ -1832,11 +1874,13 @@ def manager_view(df):
                     use_container_width=True
                 )
     
-    # Tab 4: Notifications
+    # Tab 4: Notifications - FIXED SECTION
     with tab4:
         st.subheader("🔔 Notification Center")
         
-        # Notification stats
+        notifications_df = NotificationManager.fetch_notifications()
+        
+        # Notification stats with safe datetime handling
         notif_col1, notif_col2, notif_col3 = st.columns(3)
         
         with notif_col1:
@@ -1844,11 +1888,28 @@ def manager_view(df):
             st.metric("Total Notifications", total_notifs)
         
         with notif_col2:
+            unread_count = NotificationManager.get_unread_count()
             st.metric("Unread", unread_count)
         
         with notif_col3:
-            today_notifs = len(notifications_df[notifications_df['Timestamp'].dt.date == datetime.date.today()])
-            st.metric("Today", today_notifs)
+            # FIXED: Safe datetime handling for today's notifications
+            today_count = 0
+            if not notifications_df.empty and 'Timestamp' in notifications_df.columns:
+                # Ensure Timestamp column is datetime
+                if not pd.api.types.is_datetime64_any_dtype(notifications_df['Timestamp']):
+                    try:
+                        notifications_df['Timestamp'] = pd.to_datetime(notifications_df['Timestamp'], errors='coerce')
+                    except Exception:
+                        pass
+                
+                # Count today's notifications safely
+                if pd.api.types.is_datetime64_any_dtype(notifications_df['Timestamp']):
+                    today = pd.Timestamp.now().normalize()
+                    # Use .dt accessor only on datetime columns
+                    mask = notifications_df['Timestamp'].dt.date == today.date()
+                    today_count = len(notifications_df[mask])
+            
+            st.metric("Today", today_count)
         
         # Notification list
         render_notification_center()
@@ -2051,7 +2112,7 @@ def user_view(df):
                     ">
                         <strong>{task['Title']}</strong><br>
                         <small style="color: {C21_MEDIUM_GREY}">
-                            ✅ Completed on {task['Completed Date'].strftime('%b %d')} • 
+                            ✅ Completed on {task['Completed Date'].strftime('%b %d') if pd.notna(task['Completed Date']) else 'Unknown'} • 
                             ⏱️ {task['Time Spent (Hrs)']:.1f} hours
                         </small>
                     </div>
@@ -2060,19 +2121,21 @@ def user_view(df):
         with col_prog2:
             # Hours chart
             if not completed_df.empty:
-                # Group by week
-                completed_df['Week'] = completed_df['Completed Date'].dt.to_period('W').apply(lambda r: r.start_time)
-                weekly_hours = completed_df.groupby('Week')['Time Spent (Hrs)'].sum().reset_index()
-                
-                if not weekly_hours.empty:
-                    fig_hours = px.bar(
-                        weekly_hours.tail(8),  # Last 8 weeks
-                        x='Week',
-                        y='Time Spent (Hrs)',
-                        title="Weekly Hours Logged",
-                        color_discrete_sequence=[C21_GOLD]
-                    )
-                    st.plotly_chart(fig_hours, use_container_width=True)
+                # Ensure Completed Date is datetime
+                if pd.api.types.is_datetime64_any_dtype(completed_df['Completed Date']):
+                    # Group by week
+                    completed_df['Week'] = completed_df['Completed Date'].dt.to_period('W').apply(lambda r: r.start_time)
+                    weekly_hours = completed_df.groupby('Week')['Time Spent (Hrs)'].sum().reset_index()
+                    
+                    if not weekly_hours.empty:
+                        fig_hours = px.bar(
+                            weekly_hours.tail(8),  # Last 8 weeks
+                            x='Week',
+                            y='Time Spent (Hrs)',
+                            title="Weekly Hours Logged",
+                            color_discrete_sequence=[C21_GOLD]
+                        )
+                        st.plotly_chart(fig_hours, use_container_width=True)
             
             # Performance metrics
             st.markdown("### 📊 Performance Metrics")
@@ -2080,7 +2143,7 @@ def user_view(df):
             avg_hours = completed_df['Time Spent (Hrs)'].mean() if not completed_df.empty else 0
             avg_duration = None
             
-            if not completed_df.empty:
+            if not completed_df.empty and pd.api.types.is_datetime64_any_dtype(completed_df['Completed Date']):
                 completed_df['Duration'] = (completed_df['Completed Date'] - completed_df['Start Date']).dt.days
                 avg_duration = completed_df['Duration'].mean()
             
