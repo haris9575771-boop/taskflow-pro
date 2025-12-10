@@ -4,7 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import datetime
 import time
-import hashlib
+# import hashlib # Removed as requested
 from dataclasses import dataclass
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -24,27 +24,22 @@ C21_GREEN_SUCCESS = "#4CAF50"
 @dataclass
 class AppConfig:
     APP_NAME = "Task Manager - The Burtch Team"
-    VERSION = "3.0.0 (Enterprise)"
+    VERSION = "3.0.1 (Simple Auth)"
     SHEET_ID = "1iIBoWSZSvV-SF9u2Cxi-_fbYgg06-XI32UgF1ZJIxh4"  # Replace if needed
     DRIVE_FOLDER_ID = ""  # Optional: Add your Drive Folder ID here
     SESSION_TIMEOUT_MINUTES = 60
 
 class SecurityConfig:
-    USER_DISPLAY_NAMES = {
-        "Burtch": "The Burtch Team",
-        "Luke": "Luke Wise"
-    }
-    
-    # In a real production env, salts should be used.
-    # Hashes below correspond to: "jayson0922" (Burtch) and "luke29430" (Luke)
+    # --- SIMPLIFIED HARDCODED PASSWORDS ---
+    # WARNING: This is INSECURE for a real application.
     USER_CREDENTIALS = {
         "Burtch": {
-            "password_hash": "e00a962a945d81b4d32095f9c6f2e26920516641883c8c679951834241c028e3", 
+            "password": "jayson0922", 
             "role": "Burtch",
             "display_name": "The Burtch Team"
         },
         "Luke": {
-            "password_hash": "15d31908868019777553c242337d402179b071720875c7b399127521e4945d7d",
+            "password": "luke29430",
             "role": "Luke",
             "display_name": "Luke Wise"
         }
@@ -52,10 +47,11 @@ class SecurityConfig:
     
     @staticmethod
     def verify_password(username: str, password: str) -> bool:
+        """Verifies password using direct string comparison."""
         if username not in SecurityConfig.USER_CREDENTIALS:
             return False
-        hashed_input = hashlib.sha256(password.encode()).hexdigest()
-        return hashed_input == SecurityConfig.USER_CREDENTIALS[username]["password_hash"]
+        # Direct comparison - simple, but insecure
+        return password == SecurityConfig.USER_CREDENTIALS[username]["password"]
 
 # --- 2. DATA MODELS ---
 # Expanded Columns for better tracking
@@ -421,7 +417,7 @@ def render_login():
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown(f"<h1 style='text-align: center; color: {C21_GOLD};'>🏠 Task Manager</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center;'>Enterprise Edition v3.0</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center;'>Enterprise Edition v3.0 (Simple Auth)</p>", unsafe_allow_html=True)
         
         with st.form("login_form"):
             role_display = st.selectbox("Select User", ["The Burtch Team", "Luke Wise"])
